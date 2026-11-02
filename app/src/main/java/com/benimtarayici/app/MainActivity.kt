@@ -154,6 +154,17 @@ class MainActivity : ComponentActivity() {
                     Ekran.GIZLILIK -> GizlilikScreen(
                         ayar = ayar,
                         engel = engel,
+                        onCerezKabul = {
+                            ayar.cerezKabulDegistir(it)
+                            yonetici.cerezAyarlariniUygula()
+                        },
+                        onUcuncuTaraf = {
+                            ayar.ucuncuTarafCerezDegistir(it)
+                            yonetici.cerezAyarlariniUygula()
+                        },
+                        onTemizle = { gecmis, cerez, onbellek, siteVerisi ->
+                            yonetici.verileriTemizle(gecmis, cerez, onbellek, siteVerisi)
+                        },
                         onGeri = { yonetici.ekran = yonetici.gizlilikOncesi }
                     )
 
