@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -21,11 +22,13 @@ import com.benimtarayici.app.data.VeriDeposu
 import com.benimtarayici.app.download.Indirme
 import com.benimtarayici.app.download.IndirmeDurumu
 import com.benimtarayici.app.download.IndirmeYoneticisi
+import com.benimtarayici.app.engel.EngelYoneticisi
 import com.benimtarayici.app.ui.browser.BrowserScreen
 import com.benimtarayici.app.ui.downloads.IndirmelerScreen
 import com.benimtarayici.app.ui.home.HomeScreen
 import com.benimtarayici.app.ui.lists.KayitListesiScreen
 import com.benimtarayici.app.ui.player.VideoScreen
+import com.benimtarayici.app.ui.privacy.GizlilikScreen
 import com.benimtarayici.app.ui.settings.AyarlarScreen
 import com.benimtarayici.app.ui.tabs.SekmelerScreen
 import com.benimtarayici.app.ui.theme.TarayiciTema
@@ -35,6 +38,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var depo: VeriDeposu
     private lateinit var ayar: AyarDeposu
     private lateinit var indirmeler: IndirmeYoneticisi
+    private lateinit var engel: EngelYoneticisi
     private lateinit var yonetici: SekmeYoneticisi
 
     private val bildirimIzni =
@@ -45,7 +49,8 @@ class MainActivity : ComponentActivity() {
         depo = VeriDeposu(this)
         ayar = AyarDeposu(this)
         indirmeler = IndirmeYoneticisi.al(this)
-        yonetici = SekmeYoneticisi(this, depo, ayar, indirmeler)
+        engel = EngelYoneticisi(this, ayar)
+        yonetici = SekmeYoneticisi(this, depo, ayar, indirmeler, engel)
 
         // İlk indirmede bildirim izni iste (Android 13 ve üstü).
         indirmeler.izinIste = {
@@ -79,16 +84,23 @@ class MainActivity : ComponentActivity() {
                     Ekran.TARAYICI -> {
                         val sekme = yonetici.aktifSekme
                         if (sekme != null) {
+                            val host = Uri.parse(sekme.adres).host ?: ""
                             BrowserScreen(
                                 sekme = sekme,
                                 sekmeSayisi = yonetici.sekmeler.size,
                                 yerImiVar = depo.yerImiVarMi(sekme.adres),
+                                istisnaVar = ayar.istisnaVarMi(host),
                                 onYerImi = {
                                     depo.yerImiDegistir(
                                         sekme.baslik.removePrefix("🕶 "),
                                         sekme.adres
                                     )
                                 },
+                                onIstisna = {
+                                    ayar.istisnaDegistir(host)
+                                    sekme.webView.reload()
+                                },
+                                onGizlilik = { yonetici.gizlilikAc() },
                                 onAnaSayfa = { yonetici.ekran = Ekran.ANA },
                                 onSekmeler = { yonetici.ekran = Ekran.SEKMELER }
                             )
@@ -135,7 +147,14 @@ class MainActivity : ComponentActivity() {
                             ayar.masaustuDegistir(it)
                             yonetici.masaustuModunuUygula()
                         },
+                        onGizlilik = { yonetici.gizlilikAc() },
                         onGeri = { yonetici.ekran = Ekran.ANA }
+                    )
+
+                    Ekran.GIZLILIK -> GizlilikScreen(
+                        ayar = ayar,
+                        engel = engel,
+                        onGeri = { yonetici.ekran = yonetici.gizlilikOncesi }
                     )
 
                     Ekran.INDIRMELER -> IndirmelerScreen(
@@ -219,6 +238,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         // İndirmeler arka planda sürebilir, burada durdurmuyoruz.
         indirmeler.izinIste = null
+        engel.kaydet()
         yonetici.hepsiniYokEt()
         super.onDestroy()
     }
