@@ -1,6 +1,9 @@
 package com.benimtarayici.app.ui.settings
 
+import android.content.Intent
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -18,9 +21,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,6 +39,24 @@ fun AyarlarScreen(
     onGeri: () -> Unit
 ) {
     BackHandler(enabled = true) { onGeri() }
+
+    val context = LocalContext.current
+    val klasorSecici = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (e: Exception) {
+                // İzin kalıcı yapılamazsa yine de seçimi kaydediyoruz.
+            }
+            ayar.indirmeKonumuSec(uri.toString())
+        }
+    }
 
     Scaffold(
         bottomBar = {
@@ -101,6 +124,28 @@ fun AyarlarScreen(
                 deger = ayar.tamEkran,
                 onChange = { ayar.tamEkranDegistir(it) }
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Baslik("İndirme konumu")
+            Text(
+                text = ayar.indirmeKonumuAdi,
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                text = "Dosyalar önce uygulama klasörüne iner, bitince seçtiğin klasöre kopyalanır.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row {
+                TextButton(onClick = { klasorSecici.launch(null) }) {
+                    Text("📁 Klasör seç")
+                }
+                if (ayar.indirmeKonumu.isNotEmpty()) {
+                    TextButton(onClick = { ayar.indirmeKonumuSec("") }) {
+                        Text("Varsayılana dön")
+                    }
+                }
+            }
         }
     }
 }
