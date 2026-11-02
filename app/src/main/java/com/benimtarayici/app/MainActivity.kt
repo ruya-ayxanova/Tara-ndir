@@ -11,7 +11,9 @@ import com.benimtarayici.app.browser.Ekran
 import com.benimtarayici.app.browser.SekmeYoneticisi
 import com.benimtarayici.app.data.AyarDeposu
 import com.benimtarayici.app.data.VeriDeposu
+import com.benimtarayici.app.download.IndirmeYoneticisi
 import com.benimtarayici.app.ui.browser.BrowserScreen
+import com.benimtarayici.app.ui.downloads.IndirmelerScreen
 import com.benimtarayici.app.ui.home.HomeScreen
 import com.benimtarayici.app.ui.lists.KayitListesiScreen
 import com.benimtarayici.app.ui.settings.AyarlarScreen
@@ -22,13 +24,15 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var depo: VeriDeposu
     private lateinit var ayar: AyarDeposu
+    private lateinit var indirmeler: IndirmeYoneticisi
     private lateinit var yonetici: SekmeYoneticisi
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         depo = VeriDeposu(this)
         ayar = AyarDeposu(this)
-        yonetici = SekmeYoneticisi(this, depo, ayar)
+        indirmeler = IndirmeYoneticisi(this)
+        yonetici = SekmeYoneticisi(this, depo, ayar, indirmeler)
 
         setContent {
             LaunchedEffect(ayar.tamEkran) {
@@ -45,6 +49,7 @@ class MainActivity : ComponentActivity() {
                         onGizliDegistir = { yonetici.gizliMod = !yonetici.gizliMod },
                         onYerImleri = { yonetici.ekran = Ekran.YER_IMLERI },
                         onGecmis = { yonetici.ekran = Ekran.GECMIS },
+                        onIndirmeler = { yonetici.ekran = Ekran.INDIRMELER },
                         onAyarlar = { yonetici.ekran = Ekran.AYARLAR }
                     )
 
@@ -109,6 +114,20 @@ class MainActivity : ComponentActivity() {
                         },
                         onGeri = { yonetici.ekran = Ekran.ANA }
                     )
+
+                    Ekran.INDIRMELER -> IndirmelerScreen(
+                        indirmeler = indirmeler.indirmeler,
+                        onDuraklat = { indirmeler.duraklat(it) },
+                        onDevamEt = { indirmeler.devamEt(it) },
+                        onKaldir = { indirmeler.kaldir(it) },
+                        onGeri = {
+                            yonetici.ekran = if (yonetici.aktifSekme != null) {
+                                Ekran.TARAYICI
+                            } else {
+                                Ekran.ANA
+                            }
+                        }
+                    )
                 }
             }
         }
@@ -126,6 +145,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        indirmeler.hepsiniDuraklat()
         yonetici.hepsiniYokEt()
         super.onDestroy()
     }
