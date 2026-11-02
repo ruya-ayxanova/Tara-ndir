@@ -1,7 +1,6 @@
 package com.benimtarayici.app.ui.home
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,15 +22,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -41,8 +36,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.benimtarayici.app.ui.common.AltButon
+import com.benimtarayici.app.ui.common.SekmeSayaci
 import com.benimtarayici.app.util.UrlYardimci
-import kotlinx.coroutines.launch
 
 data class HizliSite(val ad: String, val adres: String)
 
@@ -58,28 +54,21 @@ private val hizliSiteler = listOf(
 )
 
 @Composable
-fun HomeScreen(onAdresAc: (String) -> Unit) {
+fun HomeScreen(
+    sekmeSayisi: Int,
+    onAdresAc: (String) -> Unit,
+    onSekmeler: () -> Unit
+) {
     var arama by rememberSaveable { mutableStateOf("") }
-    val snackbarHostState = remember { SnackbarHostState() }
-    val kapsam = rememberCoroutineScope()
-
-    fun mesajGoster(metin: String) {
-        kapsam.launch { snackbarHostState.showSnackbar(metin) }
-    }
 
     fun git(girdi: String) {
         if (girdi.isBlank()) return
-        val hedef = UrlYardimci.adresYaDaAramaYap(girdi)
-        onAdresAc(hedef)
+        onAdresAc(UrlYardimci.adresYaDaAramaYap(girdi))
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            AltAracCubugu(
-                sekmeSayisi = 1,
-                onTikla = { ad -> mesajGoster("$ad sonraki aşamalarda eklenecek") }
-            )
+            AltAracCubugu(sekmeSayisi = sekmeSayisi, onSekmeler = onSekmeler)
         }
     ) { icBosluk ->
         Column(
@@ -157,7 +146,7 @@ private fun HizliSiteKutusu(site: HizliSite, onClick: () -> Unit) {
 }
 
 @Composable
-private fun AltAracCubugu(sekmeSayisi: Int, onTikla: (String) -> Unit) {
+private fun AltAracCubugu(sekmeSayisi: Int, onSekmeler: () -> Unit) {
     Surface(tonalElevation = 3.dp) {
         Row(
             modifier = Modifier
@@ -168,60 +157,23 @@ private fun AltAracCubugu(sekmeSayisi: Int, onTikla: (String) -> Unit) {
             AltButon(
                 etiket = "Ana sayfa",
                 simge = { Text("🏠", fontSize = 20.sp) },
-                onClick = { onTikla("Ana sayfa") }
+                onClick = { }
             )
             AltButon(
                 etiket = "Sekmeler",
-                simge = {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .border(
-                                2.dp,
-                                MaterialTheme.colorScheme.onSurface,
-                                RoundedCornerShape(6.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = sekmeSayisi.toString(),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                },
-                onClick = { onTikla("Sekmeler") }
+                simge = { SekmeSayaci(sekmeSayisi) },
+                onClick = { onSekmeler() }
             )
             AltButon(
                 etiket = "İndirmeler",
                 simge = { Text("⬇️", fontSize = 20.sp) },
-                onClick = { onTikla("İndirmeler") }
+                onClick = { }
             )
             AltButon(
                 etiket = "Ayarlar",
                 simge = { Text("⚙️", fontSize = 20.sp) },
-                onClick = { onTikla("Ayarlar") }
+                onClick = { }
             )
         }
-    }
-}
-
-@Composable
-private fun AltButon(
-    etiket: String,
-    simge: @Composable () -> Unit,
-    onClick: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(modifier = Modifier.height(28.dp), contentAlignment = Alignment.Center) {
-            simge()
-        }
-        Text(text = etiket, style = MaterialTheme.typography.labelSmall)
     }
 }
