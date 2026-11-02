@@ -1,6 +1,7 @@
 package com.benimtarayici.app.data
 
 import android.content.Context
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +39,17 @@ class AyarDeposu(context: Context) {
     var tamEkran by mutableStateOf(tercihler.getBoolean("tam_ekran", false))
         private set
 
+    // Boş ise uygulama klasörü, doluysa seçilen klasörün adresi.
+    var indirmeKonumu by mutableStateOf(tercihler.getString("indirme_konumu", "") ?: "")
+        private set
+
+    val indirmeKonumuAdi: String
+        get() {
+            if (indirmeKonumu.isEmpty()) return "Uygulama klasörü (varsayılan)"
+            val ad = Uri.parse(indirmeKonumu).lastPathSegment?.substringAfter(":") ?: ""
+            return ad.ifBlank { "Seçilen klasör" }
+        }
+
     init {
         UrlYardimci.aramaSablonu = aramaMotorlari[aramaMotoruSirasi].sablon
     }
@@ -61,5 +73,10 @@ class AyarDeposu(context: Context) {
     fun tamEkranDegistir(deger: Boolean) {
         tamEkran = deger
         tercihler.edit().putBoolean("tam_ekran", deger).apply()
+    }
+
+    fun indirmeKonumuSec(adres: String) {
+        indirmeKonumu = adres
+        tercihler.edit().putString("indirme_konumu", adres).apply()
     }
 }
