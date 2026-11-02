@@ -1,8 +1,15 @@
 package com.benimtarayici.app
 
+import android.Manifest
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -11,11 +18,14 @@ import com.benimtarayici.app.browser.Ekran
 import com.benimtarayici.app.browser.SekmeYoneticisi
 import com.benimtarayici.app.data.AyarDeposu
 import com.benimtarayici.app.data.VeriDeposu
+import com.benimtarayici.app.download.Indirme
+import com.benimtarayici.app.download.IndirmeDurumu
 import com.benimtarayici.app.download.IndirmeYoneticisi
 import com.benimtarayici.app.ui.browser.BrowserScreen
 import com.benimtarayici.app.ui.downloads.IndirmelerScreen
 import com.benimtarayici.app.ui.home.HomeScreen
 import com.benimtarayici.app.ui.lists.KayitListesiScreen
+import com.benimtarayici.app.ui.player.VideoScreen
 import com.benimtarayici.app.ui.settings.AyarlarScreen
 import com.benimtarayici.app.ui.tabs.SekmelerScreen
 import com.benimtarayici.app.ui.theme.TarayiciTema
@@ -27,12 +37,25 @@ class MainActivity : ComponentActivity() {
     private lateinit var indirmeler: IndirmeYoneticisi
     private lateinit var yonetici: SekmeYoneticisi
 
+    private val bildirimIzni =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         depo = VeriDeposu(this)
         ayar = AyarDeposu(this)
-        indirmeler = IndirmeYoneticisi(this)
+        indirmeler = IndirmeYoneticisi.al(this)
         yonetici = SekmeYoneticisi(this, depo, ayar, indirmeler)
+
+        // İlk indirmede bildirim izni iste (Android 13 ve üstü).
+        indirmeler.izinIste = {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                bildirimIzni.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
 
         setContent {
             LaunchedEffect(ayar.tamEkran) {
@@ -117,6 +140,12 @@ class MainActivity : ComponentActivity() {
 
                     Ekran.INDIRMELER -> IndirmelerScreen(
                         indirmeler = indirmeler.indirmeler,
+                        konumMetni = if (ayar.indirmeKonumu.isEmpty()) {
+                            "Konum: uygulama klasörü (Android/data/com.benimtarayici.app/files/Download)"
+                        } else {
+                            "Konum: ${ayar.indirmeKonumuAdi}"
+                        },
+                        onAc = { indirmeyiAc(it) },
                         onDuraklat = { indirmeler.duraklat(it) },
                         onDevamEt = { indirmeler.devamEt(it) },
                         onKaldir = { indirmeler.kaldir(it) },
@@ -128,8 +157,51 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     )
+
+                    Ekran.VIDEO -> {
+                        val video = yonetici.oynatilacak
+                        if (video != null) {
+                            VideoScreen(
+                                baslik = video.dosyaAdi,
+                                uri = indirmeler.acmaUri(video),
+                                onGeri = { yonetici.ekran = Ekran.INDIRMELER }
+                            )
+                        }
+                    }
                 }
             }
+        }
+    }
+
+    private fun indirmeyiAc(indirme: Indirme) {
+        if (indirme.durum != IndirmeDurumu.TAMAMLANDI) return
+
+        if (indirme.dosyaAdi.lowercase().endsWith(".apk")) {
+            Toast.makeText(
+                this,
+                "Güvenlik için APK dosyaları uygulamadan açılmaz",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        if (indirme.videoMu) {
+            yonetici.oynatilacak = indirme
+            yonetici.ekran = Ekran.VIDEO
+            return
+        }
+
+        val niyet = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(indirmeler.acmaUri(indirme), indirme.mime)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        try {
+            startActivity(niyet)
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(
+                this,
+                "Bu dosyayı açabilecek bir uygulama bulunamadı",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -145,7 +217,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        indirmeler.hepsiniDuraklat()
+        // İndirmeler arka planda sürebilir, burada durdurmuyoruz.
+        indirmeler.izinIste = null
         yonetici.hepsiniYokEt()
         super.onDestroy()
     }
