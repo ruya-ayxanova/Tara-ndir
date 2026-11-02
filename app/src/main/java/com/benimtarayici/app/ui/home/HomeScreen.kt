@@ -69,7 +69,7 @@ fun HomeScreen(onAdresAc: (String) -> Unit) {
     fun git(girdi: String) {
         if (girdi.isBlank()) return
         val hedef = UrlYardimci.adresYaDaAramaYap(girdi)
-        mesajGoster("Açılacak: $hedef (tarayıcı ekranı Aşama 3'te)")
+                onAdresAc(hedef) Aşama 3'te)")
     }
 
     Scaffold(
