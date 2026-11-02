@@ -36,6 +36,7 @@ import com.benimtarayici.app.ui.common.AltButon
 fun AyarlarScreen(
     ayar: AyarDeposu,
     onMasaustuDegistir: (Boolean) -> Unit,
+    onGizlilik: () -> Unit,
     onGeri: () -> Unit
 ) {
     BackHandler(enabled = true) { onGeri() }
@@ -89,7 +90,23 @@ fun AyarlarScreen(
                 fontWeight = FontWeight.Bold
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onGizlilik)
+                    .padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "🛡 Gizlilik ve güvenlik",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(text = "›", fontSize = 22.sp)
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
             Baslik("Tema")
             val temalar = listOf("Sistem", "Açık", "Koyu")
             temalar.forEachIndexed { sira, ad ->
