@@ -1,5 +1,6 @@
 package com.benimtarayici.app.ui.privacy
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,15 +14,24 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,9 +43,45 @@ import com.benimtarayici.app.ui.common.AltButon
 fun GizlilikScreen(
     ayar: AyarDeposu,
     engel: EngelYoneticisi,
+    onCerezKabul: (Boolean) -> Unit,
+    onUcuncuTaraf: (Boolean) -> Unit,
+    onTemizle: (Boolean, Boolean, Boolean, Boolean) -> Unit,
     onGeri: () -> Unit
 ) {
     BackHandler(enabled = true) { onGeri() }
+
+    val context = LocalContext.current
+
+    var gecmisSec by remember { mutableStateOf(true) }
+    var cerezSec by remember { mutableStateOf(true) }
+    var onbellekSec by remember { mutableStateOf(true) }
+    var siteVerisiSec by remember { mutableStateOf(false) }
+    var onayGoster by remember { mutableStateOf(false) }
+
+    val hicbiriSecili = !gecmisSec && !cerezSec && !onbellekSec && !siteVerisiSec
+
+    if (onayGoster) {
+        AlertDialog(
+            onDismissRequest = { onayGoster = false },
+            title = { Text("Seçilen veriler silinsin mi?") },
+            text = {
+                Text(
+                    "Bu işlem geri alınamaz." +
+                        if (cerezSec) " Çerezleri silersen sitelerdeki oturumların kapanır." else ""
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onTemizle(gecmisSec, cerezSec, onbellekSec, siteVerisiSec)
+                    onayGoster = false
+                    Toast.makeText(context, "Seçilen veriler temizlendi", Toast.LENGTH_SHORT).show()
+                }) { Text("Temizle") }
+            },
+            dismissButton = {
+                TextButton(onClick = { onayGoster = false }) { Text("Vazgeç") }
+            }
+        )
+    }
 
     Scaffold(
         bottomBar = {
@@ -68,6 +114,7 @@ fun GizlilikScreen(
                 fontWeight = FontWeight.Bold
             )
 
+            // ---- Engelleme ----
             Spacer(modifier = Modifier.height(16.dp))
             Baslik("Engelleme")
             AnahtarSatiri(
@@ -82,14 +129,50 @@ fun GizlilikScreen(
                 deger = ayar.izleyiciEngelle,
                 onChange = { ayar.izleyiciEngelleDegistir(it) }
             )
-
-            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = "Listede ${engel.listeBoyutu} alan adı var • Şimdiye kadar ${engel.toplamEngellenen} istek engellendi",
                 style = MaterialTheme.typography.labelMedium
             )
 
+            // ---- Çerezler ----
             Spacer(modifier = Modifier.height(20.dp))
+            Baslik("Çerezler")
+            AnahtarSatiri(
+                metin = "Çerezleri kabul et",
+                aciklama = "Kapatırsan çoğu sitede giriş yapamazsın",
+                deger = ayar.cerezKabul,
+                onChange = { onCerezKabul(it) }
+            )
+            AnahtarSatiri(
+                metin = "Üçüncü taraf çerezlere izin ver",
+                aciklama = "Kapalıyken reklam ve takip çerezlerinin çoğu engellenir. Bazı sitelerde \"başka hesapla giriş\" bozulabilir.",
+                deger = ayar.ucuncuTarafCerez,
+                onChange = { onUcuncuTaraf(it) }
+            )
+            AnahtarSatiri(
+                metin = "Gizli sekmeler kapanınca verileri sil",
+                aciklama = "Son gizli sekme kapanınca çerezler, site verileri ve önbellek silinir. Android'in kısıtı yüzünden normal sekmelerdeki oturumlar da kapanır.",
+                deger = ayar.gizliOturumTemizle,
+                onChange = { ayar.gizliOturumTemizleDegistir(it) }
+            )
+
+            // ---- Temizleme ----
+            Spacer(modifier = Modifier.height(20.dp))
+            Baslik("Tarama verilerini temizle")
+            KutuSatiri("Geçmiş", gecmisSec) { gecmisSec = it }
+            KutuSatiri("Çerezler", cerezSec) { cerezSec = it }
+            KutuSatiri("Önbellek", onbellekSec) { onbellekSec = it }
+            KutuSatiri("Site verileri (yerel depolama)", siteVerisiSec) { siteVerisiSec = it }
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = { onayGoster = true },
+                enabled = !hicbiriSecili
+            ) {
+                Text("Seçilenleri temizle")
+            }
+
+            // ---- Engelleme istisnaları ----
+            Spacer(modifier = Modifier.height(24.dp))
             Baslik("Engellemeyi kapattığın siteler")
             if (ayar.istisnalar.isEmpty()) {
                 Text(
@@ -164,5 +247,23 @@ private fun AnahtarSatiri(
             )
         }
         Switch(checked = deger, onCheckedChange = onChange)
+    }
+}
+
+@Composable
+private fun KutuSatiri(metin: String, secili: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onChange(!secili) }
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(checked = secili, onCheckedChange = null)
+        Text(
+            text = metin,
+            modifier = Modifier.padding(start = 12.dp),
+            style = MaterialTheme.typography.bodyLarge
+        )
     }
 }
