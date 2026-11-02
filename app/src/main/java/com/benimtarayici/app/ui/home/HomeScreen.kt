@@ -56,8 +56,12 @@ private val hizliSiteler = listOf(
 @Composable
 fun HomeScreen(
     sekmeSayisi: Int,
+    gizliMod: Boolean,
     onAdresAc: (String) -> Unit,
-    onSekmeler: () -> Unit
+    onSekmeler: () -> Unit,
+    onGizliDegistir: () -> Unit,
+    onYerImleri: () -> Unit,
+    onGecmis: () -> Unit
 ) {
     var arama by rememberSaveable { mutableStateOf("") }
 
@@ -100,7 +104,41 @@ fun HomeScreen(
                 keyboardActions = KeyboardActions(onGo = { git(arama) })
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Etiket(
+                    metin = "⭐ Yer imleri",
+                    secili = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = onYerImleri
+                )
+                Etiket(
+                    metin = "🕘 Geçmiş",
+                    secili = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = onGecmis
+                )
+                Etiket(
+                    metin = "🕶 Gizli",
+                    secili = gizliMod,
+                    modifier = Modifier.weight(1f),
+                    onClick = onGizliDegistir
+                )
+            }
+
+            if (gizliMod) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Sıradaki sayfa gizli sekmede açılacak",
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             LazyVerticalGrid(
                 columns = GridCells.Fixed(4),
@@ -111,6 +149,40 @@ fun HomeScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun Etiket(
+    metin: String,
+    secili: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit
+) {
+    val arka = if (secili) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val yazi = if (secili) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(arka)
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = metin,
+            color = yazi,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1
+        )
     }
 }
 
