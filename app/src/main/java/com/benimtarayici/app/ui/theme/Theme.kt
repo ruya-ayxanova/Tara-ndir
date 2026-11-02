@@ -23,8 +23,14 @@ private val KoyuRenkler = darkColorScheme(
     surface = Color(0xFF16120F)
 )
 
+// tema: 0 = sistem, 1 = açık, 2 = koyu
 @Composable
-fun TarayiciTema(icerik: @Composable () -> Unit) {
-    val renkler = if (isSystemInDarkTheme()) KoyuRenkler else AcikRenkler
+fun TarayiciTema(tema: Int = 0, icerik: @Composable () -> Unit) {
+    val koyu = when (tema) {
+        1 -> false
+        2 -> true
+        else -> isSystemInDarkTheme()
+    }
+    val renkler = if (koyu) KoyuRenkler else AcikRenkler
     MaterialTheme(colorScheme = renkler, content = icerik)
 }
