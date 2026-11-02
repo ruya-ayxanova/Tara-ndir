@@ -12,8 +12,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.benimtarayici.app.data.AyarDeposu
 import com.benimtarayici.app.data.VeriDeposu
+import com.benimtarayici.app.download.IndirmeYoneticisi
 
-enum class Ekran { ANA, TARAYICI, SEKMELER, YER_IMLERI, GECMIS, AYARLAR }
+enum class Ekran { ANA, TARAYICI, SEKMELER, YER_IMLERI, GECMIS, AYARLAR, INDIRMELER }
 
 class Sekme(val id: Int, val webView: WebView, val gizli: Boolean) {
     var baslik by mutableStateOf(if (gizli) "🕶 Yeni sekme" else "Yeni sekme")
@@ -26,7 +27,8 @@ class Sekme(val id: Int, val webView: WebView, val gizli: Boolean) {
 class SekmeYoneticisi(
     private val context: Context,
     private val depo: VeriDeposu,
-    private val ayar: AyarDeposu
+    private val ayar: AyarDeposu,
+    private val indirmeler: IndirmeYoneticisi
 ) {
 
     private val masaustuUA =
@@ -74,6 +76,11 @@ class SekmeYoneticisi(
             webView.settings.cacheMode = WebSettings.LOAD_NO_CACHE
         }
         masaustuUygula(webView)
+
+        // Sayfa bir dosya indirmek isterse indirme yöneticisine devret.
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            indirmeler.baslat(url, userAgent, contentDisposition, mimeType)
+        }
 
         webView.webViewClient = object : WebViewClient() {
             override fun doUpdateVisitedHistory(
