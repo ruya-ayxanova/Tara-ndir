@@ -1,10 +1,14 @@
 package com.benimtarayici.app.download
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.provider.DocumentsContract
 import android.webkit.CookieManager
+import android.webkit.MimeTypeMap
 import android.webkit.URLUtil
 import android.widget.Toast
 import androidx.compose.runtime.getValue
@@ -12,6 +16,8 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -26,7 +32,8 @@ class Indirme(
     val id: Int,
     val adres: String,
     val yol: String,
-    val userAgent: String?
+    val userAgent: String?,
+    val hedefKlasor: String?
 ) {
     val dosyaAdi: String
         get() = File(yol).name
@@ -36,6 +43,18 @@ class Indirme(
     var toplam by mutableLongStateOf(-1L)
     var hata by mutableStateOf("")
     var duraklatiliyor by mutableStateOf(false)
+    var kopyalaniyor by mutableStateOf(false)
+    var hedefUri by mutableStateOf<String?>(null)
+
+    val mime: String
+        get() {
+            val uzanti = dosyaAdi.substringAfterLast('.', "").lowercase()
+            return MimeTypeMap.getSingleton().getMimeTypeFromExtension(uzanti)
+                ?: "application/octet-stream"
+        }
+
+    val videoMu: Boolean
+        get() = mime.startsWith("video/")
 
     @Volatile
     var duraklatIstendi = false
@@ -44,13 +63,32 @@ class Indirme(
     var iptalIstendi = false
 }
 
-class IndirmeYoneticisi(private val context: Context) {
+class IndirmeYoneticisi private constructor(private val context: Context) {
+
+    companion object {
+        @Volatile
+        private var ornek: IndirmeYoneticisi? = null
+
+        // Uygulama boyunca tek bir yönetici kullanılır.
+        fun al(context: Context): IndirmeYoneticisi {
+            return ornek ?: synchronized(this) {
+                ornek ?: IndirmeYoneticisi(context.applicationContext).also { ornek = it }
+            }
+        }
+
+        fun mevcut(): IndirmeYoneticisi? = ornek
+    }
 
     val indirmeler = mutableStateListOf<Indirme>()
+
+    // Activity bildirim izni istemek için bunu doldurur.
+    var izinIste: (() -> Unit)? = null
 
     private val ana = Handler(Looper.getMainLooper())
     private val tercihler =
         context.getSharedPreferences("tarayici_indirmeler", Context.MODE_PRIVATE)
+    private val ayarTercihleri =
+        context.getSharedPreferences("tarayici_ayarlar", Context.MODE_PRIVATE)
     private var sayac = 0
 
     private val klasor: File
@@ -62,6 +100,7 @@ class IndirmeYoneticisi(private val context: Context) {
         }
 
     init {
+        IndirmeBildirim.kanalOlustur(context)
         yukle()
     }
 
@@ -81,11 +120,20 @@ class IndirmeYoneticisi(private val context: Context) {
             ).show()
             return
         }
+        izinIste?.invoke()
+
         val ad = URLUtil.guessFileName(adres, contentDisposition, mimeType)
             .replace("/", "_")
         val dosya = benzersizDosya(ad)
+        val secilen = ayarTercihleri.getString("indirme_konumu", "") ?: ""
         sayac += 1
-        val indirme = Indirme(sayac, adres, dosya.absolutePath, userAgent)
+        val indirme = Indirme(
+            sayac,
+            adres,
+            dosya.absolutePath,
+            userAgent,
+            if (secilen.isBlank()) null else secilen
+        )
         indirmeler.add(0, indirme)
         kaydet()
         Toast.makeText(context, "İndirme başladı: ${dosya.name}", Toast.LENGTH_SHORT).show()
@@ -93,7 +141,7 @@ class IndirmeYoneticisi(private val context: Context) {
     }
 
     fun duraklat(indirme: Indirme) {
-        if (indirme.durum == IndirmeDurumu.INIYOR) {
+        if (indirme.durum == IndirmeDurumu.INIYOR && !indirme.kopyalaniyor) {
             indirme.duraklatIstendi = true
             indirme.duraklatiliyor = true
         }
@@ -110,17 +158,36 @@ class IndirmeYoneticisi(private val context: Context) {
     // Kaydı ve dosyayı siler.
     fun kaldir(indirme: Indirme) {
         if (indirme.durum == IndirmeDurumu.INIYOR) {
+            if (indirme.kopyalaniyor) return
             indirme.iptalIstendi = true
             indirme.duraklatiliyor = true
         } else {
             File(indirme.yol).delete()
+            val uri = indirme.hedefUri
+            if (uri != null) {
+                try {
+                    DocumentsContract.deleteDocument(context.contentResolver, Uri.parse(uri))
+                } catch (e: Exception) {
+                    // Dosya zaten silinmiş olabilir.
+                }
+            }
             indirmeler.remove(indirme)
             kaydet()
         }
     }
 
-    fun hepsiniDuraklat() {
-        indirmeler.forEach { if (it.durum == IndirmeDurumu.INIYOR) it.duraklatIstendi = true }
+    // Dosyayı açmak için kullanılacak adres.
+    fun acmaUri(indirme: Indirme): Uri {
+        val uri = indirme.hedefUri
+        return if (uri != null) {
+            Uri.parse(uri)
+        } else {
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                File(indirme.yol)
+            )
+        }
     }
 
     // ---- İç işlemler ----
@@ -139,12 +206,48 @@ class IndirmeYoneticisi(private val context: Context) {
         return dosya
     }
 
+    private fun servisiBaslat() {
+        try {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, IndirmeServisi::class.java)
+            )
+        } catch (e: Exception) {
+            // Servis başlatılamazsa indirme yine uygulama açıkken sürer.
+        }
+    }
+
+    // Tamamlanan dosyayı kullanıcının seçtiği klasöre kopyalar.
+    private fun klasoreKopyala(indirme: Indirme, secilenKlasor: String): String {
+        val agac = Uri.parse(secilenKlasor)
+        val ust = DocumentsContract.buildDocumentUriUsingTree(
+            agac,
+            DocumentsContract.getTreeDocumentId(agac)
+        )
+        val kaynak = File(indirme.yol)
+        val hedef = DocumentsContract.createDocument(
+            context.contentResolver,
+            ust,
+            indirme.mime,
+            indirme.dosyaAdi
+        ) ?: throw IOException("Hedef dosya oluşturulamadı")
+
+        val cikti = context.contentResolver.openOutputStream(hedef)
+            ?: throw IOException("Hedef dosya açılamadı")
+        cikti.use { yazici ->
+            kaynak.inputStream().use { girdi -> girdi.copyTo(yazici) }
+        }
+        kaynak.delete()
+        return hedef.toString()
+    }
+
     private fun calistir(indirme: Indirme) {
         indirme.duraklatIstendi = false
         indirme.iptalIstendi = false
         indirme.duraklatiliyor = false
         indirme.hata = ""
         indirme.durum = IndirmeDurumu.INIYOR
+        servisiBaslat()
 
         Thread {
             var baglanti: HttpURLConnection? = null
@@ -215,6 +318,21 @@ class IndirmeYoneticisi(private val context: Context) {
                 baglanti?.disconnect()
             }
 
+            // İndirme bittiyse ve klasör seçilmişse kopyala.
+            val secilenKlasor = indirme.hedefKlasor
+            if (tamam && hataMesaji == null && !indirme.iptalIstendi &&
+                secilenKlasor != null && indirme.hedefUri == null
+            ) {
+                indirme.kopyalaniyor = true
+                try {
+                    indirme.hedefUri = klasoreKopyala(indirme, secilenKlasor)
+                } catch (e: Exception) {
+                    hataMesaji = "Klasöre kopyalanamadı: " +
+                        (e.message ?: e.javaClass.simpleName)
+                }
+                indirme.kopyalaniyor = false
+            }
+
             val hataSon = hataMesaji
             val tamamSon = tamam
             val yerelSon = yerel
@@ -236,6 +354,7 @@ class IndirmeYoneticisi(private val context: Context) {
                         if (indirme.toplam <= 0) indirme.toplam = yerelSon
                         indirme.indirilen = yerelSon
                         indirme.durum = IndirmeDurumu.TAMAMLANDI
+                        IndirmeBildirim.tamamlandi(context, indirme.dosyaAdi, indirme.id)
                     }
 
                     else -> {
@@ -258,6 +377,8 @@ class IndirmeYoneticisi(private val context: Context) {
                     .put("durum", i.durum.name)
                     .put("toplam", i.toplam)
                     .put("ua", i.userAgent ?: "")
+                    .put("klasor", i.hedefKlasor ?: "")
+                    .put("uri", i.hedefUri ?: "")
             )
         }
         tercihler.edit().putString("liste", dizi.toString()).apply()
@@ -271,17 +392,28 @@ class IndirmeYoneticisi(private val context: Context) {
                 val o = dizi.getJSONObject(s)
                 val yol = o.getString("yol")
                 val ua = o.optString("ua")
+                val hedefKlasor = o.optString("klasor")
+                val hedefUri = o.optString("uri")
                 val indirme = Indirme(
                     o.getInt("id"),
                     o.getString("adres"),
                     yol,
-                    if (ua.isBlank()) null else ua
+                    if (ua.isBlank()) null else ua,
+                    if (hedefKlasor.isBlank()) null else hedefKlasor
                 )
+                if (hedefUri.isNotBlank()) indirme.hedefUri = hedefUri
+
                 val bitti = o.getString("durum") == IndirmeDurumu.TAMAMLANDI.name
                 indirme.durum = if (bitti) IndirmeDurumu.TAMAMLANDI else IndirmeDurumu.DURAKLATILDI
                 indirme.toplam = o.optLong("toplam", -1L)
                 val dosya = File(yol)
-                indirme.indirilen = if (dosya.exists()) dosya.length() else 0L
+                indirme.indirilen = if (bitti && indirme.toplam > 0) {
+                    indirme.toplam
+                } else if (dosya.exists()) {
+                    dosya.length()
+                } else {
+                    0L
+                }
                 indirmeler.add(indirme)
                 if (indirme.id > sayac) sayac = indirme.id
             }
