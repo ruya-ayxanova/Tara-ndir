@@ -12,9 +12,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.benimtarayici.app.data.AyarDeposu
 import com.benimtarayici.app.data.VeriDeposu
+import com.benimtarayici.app.download.Indirme
 import com.benimtarayici.app.download.IndirmeYoneticisi
 
-enum class Ekran { ANA, TARAYICI, SEKMELER, YER_IMLERI, GECMIS, AYARLAR, INDIRMELER }
+enum class Ekran { ANA, TARAYICI, SEKMELER, YER_IMLERI, GECMIS, AYARLAR, INDIRMELER, VIDEO }
 
 class Sekme(val id: Int, val webView: WebView, val gizli: Boolean) {
     var baslik by mutableStateOf(if (gizli) "🕶 Yeni sekme" else "Yeni sekme")
@@ -39,6 +40,7 @@ class SekmeYoneticisi(
     var aktifId by mutableStateOf<Int?>(null)
     var ekran by mutableStateOf(Ekran.ANA)
     var gizliMod by mutableStateOf(false)
+    var oynatilacak by mutableStateOf<Indirme?>(null)
 
     private var sayac = 0
 
