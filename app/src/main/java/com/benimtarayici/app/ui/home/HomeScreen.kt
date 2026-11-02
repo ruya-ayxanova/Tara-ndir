@@ -69,7 +69,7 @@ fun HomeScreen(onAdresAc: (String) -> Unit) {
     fun git(girdi: String) {
         if (girdi.isBlank()) return
         val hedef = UrlYardimci.adresYaDaAramaYap(girdi)
-                onAdresAc(hedef)
+        onAdresAc(hedef)
     }
 
     Scaffold(
