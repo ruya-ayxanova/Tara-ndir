@@ -2,15 +2,18 @@ package com.benimtarayici.app.ui.browser
 
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -23,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -37,6 +41,8 @@ import com.benimtarayici.app.util.UrlYardimci
 fun BrowserScreen(
     sekme: Sekme,
     sekmeSayisi: Int,
+    yerImiVar: Boolean,
+    onYerImi: () -> Unit,
     onAnaSayfa: () -> Unit,
     onSekmeler: () -> Unit
 ) {
@@ -101,6 +107,22 @@ fun BrowserScreen(
                     .padding(horizontal = 8.dp, vertical = 6.dp),
                 singleLine = true,
                 shape = RoundedCornerShape(24.dp),
+                leadingIcon = if (sekme.gizli) {
+                    { Text("🕶", fontSize = 18.sp) }
+                } else {
+                    null
+                },
+                trailingIcon = {
+                    Text(
+                        text = if (yerImiVar) "★" else "☆",
+                        fontSize = 22.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable(onClick = onYerImi)
+                            .padding(8.dp)
+                    )
+                },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = {
                     if (adresMetni.isNotBlank()) {
