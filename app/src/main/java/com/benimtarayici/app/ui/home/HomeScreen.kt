@@ -62,6 +62,7 @@ fun HomeScreen(
     onGizliDegistir: () -> Unit,
     onYerImleri: () -> Unit,
     onGecmis: () -> Unit,
+    onIndirmeler: () -> Unit,
     onAyarlar: () -> Unit
 ) {
     var arama by rememberSaveable { mutableStateOf("") }
@@ -76,6 +77,7 @@ fun HomeScreen(
             AltAracCubugu(
                 sekmeSayisi = sekmeSayisi,
                 onSekmeler = onSekmeler,
+                onIndirmeler = onIndirmeler,
                 onAyarlar = onAyarlar
             )
         }
@@ -226,6 +228,7 @@ private fun HizliSiteKutusu(site: HizliSite, onClick: () -> Unit) {
 private fun AltAracCubugu(
     sekmeSayisi: Int,
     onSekmeler: () -> Unit,
+    onIndirmeler: () -> Unit,
     onAyarlar: () -> Unit
 ) {
     Surface(tonalElevation = 3.dp) {
@@ -248,7 +251,7 @@ private fun AltAracCubugu(
             AltButon(
                 etiket = "İndirmeler",
                 simge = { Text("⬇️", fontSize = 20.sp) },
-                onClick = { }
+                onClick = { onIndirmeler() }
             )
             AltButon(
                 etiket = "Ayarlar",
