@@ -50,6 +50,15 @@ class AyarDeposu(context: Context) {
     var izleyiciEngelle by mutableStateOf(tercihler.getBoolean("izleyici_engelle", true))
         private set
 
+    var cerezKabul by mutableStateOf(tercihler.getBoolean("cerez_kabul", true))
+        private set
+
+    var ucuncuTarafCerez by mutableStateOf(tercihler.getBoolean("ucuncu_taraf_cerez", false))
+        private set
+
+    var gizliOturumTemizle by mutableStateOf(tercihler.getBoolean("gizli_oturum_temizle", false))
+        private set
+
     // Engellemenin kapatıldığı siteler.
     val istisnalar = mutableStateListOf<String>()
 
@@ -100,6 +109,21 @@ class AyarDeposu(context: Context) {
     fun izleyiciEngelleDegistir(deger: Boolean) {
         izleyiciEngelle = deger
         tercihler.edit().putBoolean("izleyici_engelle", deger).apply()
+    }
+
+    fun cerezKabulDegistir(deger: Boolean) {
+        cerezKabul = deger
+        tercihler.edit().putBoolean("cerez_kabul", deger).apply()
+    }
+
+    fun ucuncuTarafCerezDegistir(deger: Boolean) {
+        ucuncuTarafCerez = deger
+        tercihler.edit().putBoolean("ucuncu_taraf_cerez", deger).apply()
+    }
+
+    fun gizliOturumTemizleDegistir(deger: Boolean) {
+        gizliOturumTemizle = deger
+        tercihler.edit().putBoolean("gizli_oturum_temizle", deger).apply()
     }
 
     // ---- Site istisnaları ----
