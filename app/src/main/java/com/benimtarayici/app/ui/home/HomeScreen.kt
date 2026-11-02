@@ -57,8 +57,7 @@ private val hizliSiteler = listOf(
     HizliSite("Hava", "https://www.mgm.gov.tr")
 )
 
-@Composable
-fun HomeScreen() {
+fun HomeScreen(onAdresAc: (String) -> Unit) {
     var arama by rememberSaveable { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
     val kapsam = rememberCoroutineScope()
