@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.benimtarayici.app.util.UrlYardimci
@@ -43,6 +44,15 @@ class AyarDeposu(context: Context) {
     var indirmeKonumu by mutableStateOf(tercihler.getString("indirme_konumu", "") ?: "")
         private set
 
+    var reklamEngelle by mutableStateOf(tercihler.getBoolean("reklam_engelle", true))
+        private set
+
+    var izleyiciEngelle by mutableStateOf(tercihler.getBoolean("izleyici_engelle", true))
+        private set
+
+    // Engellemenin kapatıldığı siteler.
+    val istisnalar = mutableStateListOf<String>()
+
     val indirmeKonumuAdi: String
         get() {
             if (indirmeKonumu.isEmpty()) return "Uygulama klasörü (varsayılan)"
@@ -52,6 +62,8 @@ class AyarDeposu(context: Context) {
 
     init {
         UrlYardimci.aramaSablonu = aramaMotorlari[aramaMotoruSirasi].sablon
+        val kayitli = tercihler.getStringSet("engel_istisnalari", emptySet()) ?: emptySet()
+        istisnalar.addAll(kayitli.sorted())
     }
 
     fun temaSec(deger: Int) {
@@ -78,5 +90,37 @@ class AyarDeposu(context: Context) {
     fun indirmeKonumuSec(adres: String) {
         indirmeKonumu = adres
         tercihler.edit().putString("indirme_konumu", adres).apply()
+    }
+
+    fun reklamEngelleDegistir(deger: Boolean) {
+        reklamEngelle = deger
+        tercihler.edit().putBoolean("reklam_engelle", deger).apply()
+    }
+
+    fun izleyiciEngelleDegistir(deger: Boolean) {
+        izleyiciEngelle = deger
+        tercihler.edit().putBoolean("izleyici_engelle", deger).apply()
+    }
+
+    // ---- Site istisnaları ----
+
+    private fun anahtar(host: String): String = host.lowercase().removePrefix("www.")
+
+    fun istisnaVarMi(host: String): Boolean {
+        val h = anahtar(host)
+        if (h.isEmpty()) return false
+        return istisnalar.any { h == it || h.endsWith(".$it") }
+    }
+
+    // Varsa kaldırır, yoksa ekler.
+    fun istisnaDegistir(host: String) {
+        val h = anahtar(host)
+        if (h.isEmpty()) return
+        if (istisnaVarMi(h)) {
+            istisnalar.removeAll { h == it || h.endsWith(".$it") }
+        } else {
+            istisnalar.add(h)
+        }
+        tercihler.edit().putStringSet("engel_istisnalari", istisnalar.toSet()).apply()
     }
 }
