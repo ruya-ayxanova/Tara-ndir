@@ -61,7 +61,8 @@ fun HomeScreen(
     onSekmeler: () -> Unit,
     onGizliDegistir: () -> Unit,
     onYerImleri: () -> Unit,
-    onGecmis: () -> Unit
+    onGecmis: () -> Unit,
+    onAyarlar: () -> Unit
 ) {
     var arama by rememberSaveable { mutableStateOf("") }
 
@@ -72,7 +73,11 @@ fun HomeScreen(
 
     Scaffold(
         bottomBar = {
-            AltAracCubugu(sekmeSayisi = sekmeSayisi, onSekmeler = onSekmeler)
+            AltAracCubugu(
+                sekmeSayisi = sekmeSayisi,
+                onSekmeler = onSekmeler,
+                onAyarlar = onAyarlar
+            )
         }
     ) { icBosluk ->
         Column(
@@ -218,7 +223,11 @@ private fun HizliSiteKutusu(site: HizliSite, onClick: () -> Unit) {
 }
 
 @Composable
-private fun AltAracCubugu(sekmeSayisi: Int, onSekmeler: () -> Unit) {
+private fun AltAracCubugu(
+    sekmeSayisi: Int,
+    onSekmeler: () -> Unit,
+    onAyarlar: () -> Unit
+) {
     Surface(tonalElevation = 3.dp) {
         Row(
             modifier = Modifier
@@ -244,7 +253,7 @@ private fun AltAracCubugu(sekmeSayisi: Int, onSekmeler: () -> Unit) {
             AltButon(
                 etiket = "Ayarlar",
                 simge = { Text("⚙️", fontSize = 20.sp) },
-                onClick = { }
+                onClick = { onAyarlar() }
             )
         }
     }
