@@ -3,10 +3,12 @@ package com.benimtarayici.app.browser
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
+import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.runtime.getValue
@@ -77,6 +79,10 @@ class SekmeYoneticisi(
     val aktifSekme: Sekme?
         get() = sekmeler.firstOrNull { it.id == aktifId }
 
+    init {
+        CookieManager.getInstance().setAcceptCookie(ayar.cerezKabul)
+    }
+
     fun gizlilikAc() {
         gizlilikOncesi = ekran
         ekran = Ekran.GIZLILIK
@@ -101,6 +107,46 @@ class SekmeYoneticisi(
         }
     }
 
+    // Çerez ayarları değişince hem genel ayarı hem açık sekmeleri günceller.
+    fun cerezAyarlariniUygula() {
+        val cerezler = CookieManager.getInstance()
+        cerezler.setAcceptCookie(ayar.cerezKabul)
+        sekmeler.forEach {
+            cerezler.setAcceptThirdPartyCookies(it.webView, ayar.ucuncuTarafCerez)
+        }
+    }
+
+    // Seçilen tarama verilerini siler.
+    fun verileriTemizle(
+        gecmis: Boolean,
+        cerez: Boolean,
+        onbellek: Boolean,
+        siteVerisi: Boolean
+    ) {
+        if (gecmis) {
+            depo.gecmisiTemizle()
+            sekmeler.forEach {
+                it.webView.clearHistory()
+                it.geriGidebilir = false
+                it.ileriGidebilir = false
+            }
+        }
+        if (cerez) {
+            val cerezler = CookieManager.getInstance()
+            cerezler.removeAllCookies(null)
+            cerezler.flush()
+        }
+        if (onbellek) {
+            // Önbellek tüm WebView'ler için ortak, hangi sekme olduğu fark etmez.
+            val webView = sekmeler.firstOrNull()?.webView ?: WebView(context)
+            webView.clearCache(true)
+            if (sekmeler.isEmpty()) webView.destroy()
+        }
+        if (siteVerisi) {
+            WebStorage.getInstance().deleteAllData()
+        }
+    }
+
     fun yeniSekme(adres: String, gizli: Boolean = gizliMod) {
         gizliMod = false
         sayac += 1
@@ -118,6 +164,8 @@ class SekmeYoneticisi(
             webView.settings.cacheMode = WebSettings.LOAD_NO_CACHE
         }
         masaustuUygula(webView)
+        CookieManager.getInstance()
+            .setAcceptThirdPartyCookies(webView, ayar.ucuncuTarafCerez)
 
         // Sayfa bir dosya indirmek isterse indirme yöneticisine devret.
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
@@ -213,6 +261,15 @@ class SekmeYoneticisi(
         sekme.webView.destroy()
         if (aktifId == sekme.id) {
             aktifId = sekmeler.getOrNull(minOf(sira, sekmeler.size - 1))?.id
+        }
+        // Son gizli sekme kapandıysa ve ayar açıksa verileri sil.
+        if (sekme.gizli && ayar.gizliOturumTemizle && sekmeler.none { it.gizli }) {
+            verileriTemizle(
+                gecmis = false,
+                cerez = true,
+                onbellek = true,
+                siteVerisi = true
+            )
         }
     }
 
