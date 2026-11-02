@@ -5,26 +5,34 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.benimtarayici.app.browser.Ekran
 import com.benimtarayici.app.browser.SekmeYoneticisi
+import com.benimtarayici.app.data.VeriDeposu
 import com.benimtarayici.app.ui.browser.BrowserScreen
 import com.benimtarayici.app.ui.home.HomeScreen
+import com.benimtarayici.app.ui.lists.KayitListesiScreen
 import com.benimtarayici.app.ui.tabs.SekmelerScreen
 import com.benimtarayici.app.ui.theme.TarayiciTema
 
 class MainActivity : ComponentActivity() {
 
+    private lateinit var depo: VeriDeposu
     private lateinit var yonetici: SekmeYoneticisi
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        yonetici = SekmeYoneticisi(this)
+        depo = VeriDeposu(this)
+        yonetici = SekmeYoneticisi(this, depo)
 
         setContent {
             TarayiciTema {
                 when (yonetici.ekran) {
                     Ekran.ANA -> HomeScreen(
                         sekmeSayisi = yonetici.sekmeler.size,
+                        gizliMod = yonetici.gizliMod,
                         onAdresAc = { yonetici.yeniSekme(it) },
-                        onSekmeler = { yonetici.ekran = Ekran.SEKMELER }
+                        onSekmeler = { yonetici.ekran = Ekran.SEKMELER },
+                        onGizliDegistir = { yonetici.gizliMod = !yonetici.gizliMod },
+                        onYerImleri = { yonetici.ekran = Ekran.YER_IMLERI },
+                        onGecmis = { yonetici.ekran = Ekran.GECMIS }
                     )
 
                     Ekran.TARAYICI -> {
@@ -33,6 +41,13 @@ class MainActivity : ComponentActivity() {
                             BrowserScreen(
                                 sekme = sekme,
                                 sekmeSayisi = yonetici.sekmeler.size,
+                                yerImiVar = depo.yerImiVarMi(sekme.adres),
+                                onYerImi = {
+                                    depo.yerImiDegistir(
+                                        sekme.baslik.removePrefix("🕶 "),
+                                        sekme.adres
+                                    )
+                                },
                                 onAnaSayfa = { yonetici.ekran = Ekran.ANA },
                                 onSekmeler = { yonetici.ekran = Ekran.SEKMELER }
                             )
@@ -52,6 +67,25 @@ class MainActivity : ComponentActivity() {
                                 Ekran.ANA
                             }
                         }
+                    )
+
+                    Ekran.YER_IMLERI -> KayitListesiScreen(
+                        baslik = "Yer imleri",
+                        kayitlar = depo.yerImleri,
+                        bosMesaj = "Henüz yer imi yok. Bir sayfada adres çubuğundaki ☆ işaretine dokun.",
+                        onAc = { yonetici.yeniSekme(it.adres, false) },
+                        onSil = { depo.yerImiSil(it) },
+                        onGeri = { yonetici.ekran = Ekran.ANA }
+                    )
+
+                    Ekran.GECMIS -> KayitListesiScreen(
+                        baslik = "Geçmiş",
+                        kayitlar = depo.gecmis,
+                        bosMesaj = "Geçmiş boş.",
+                        onAc = { yonetici.yeniSekme(it.adres, false) },
+                        onSil = { depo.gecmistenSil(it) },
+                        onGeri = { yonetici.ekran = Ekran.ANA },
+                        onHepsiniTemizle = { depo.gecmisiTemizle() }
                     )
                 }
             }
