@@ -1,7 +1,11 @@
 package com.benimtarayici.app.browser
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.net.Uri
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -14,8 +18,13 @@ import com.benimtarayici.app.data.AyarDeposu
 import com.benimtarayici.app.data.VeriDeposu
 import com.benimtarayici.app.download.Indirme
 import com.benimtarayici.app.download.IndirmeYoneticisi
+import com.benimtarayici.app.engel.EngelYoneticisi
+import java.io.ByteArrayInputStream
+import java.util.concurrent.atomic.AtomicInteger
 
-enum class Ekran { ANA, TARAYICI, SEKMELER, YER_IMLERI, GECMIS, AYARLAR, INDIRMELER, VIDEO }
+enum class Ekran {
+    ANA, TARAYICI, SEKMELER, YER_IMLERI, GECMIS, AYARLAR, INDIRMELER, VIDEO, GIZLILIK
+}
 
 class Sekme(val id: Int, val webView: WebView, val gizli: Boolean) {
     var baslik by mutableStateOf(if (gizli) "🕶 Yeni sekme" else "Yeni sekme")
@@ -23,29 +32,60 @@ class Sekme(val id: Int, val webView: WebView, val gizli: Boolean) {
     var ilerleme by mutableIntStateOf(0)
     var geriGidebilir by mutableStateOf(false)
     var ileriGidebilir by mutableStateOf(false)
+
+    // Bu sayfada engellenen istek sayısı.
+    var engellenen by mutableIntStateOf(0)
+    val engelSayaci = AtomicInteger(0)
+
+    // Arka plan iş parçacığından okunduğu için düz değişken.
+    @Volatile
+    var sayfaHost: String = ""
 }
 
 class SekmeYoneticisi(
     private val context: Context,
     private val depo: VeriDeposu,
     private val ayar: AyarDeposu,
-    private val indirmeler: IndirmeYoneticisi
+    private val indirmeler: IndirmeYoneticisi,
+    private val engel: EngelYoneticisi
 ) {
 
     private val masaustuUA =
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
             "Chrome/124.0.0.0 Safari/537.36"
 
+    // Boş kalan Google reklam kutularını gizler.
+    private val kozmetikJs = """
+        (function() {
+            var s = document.createElement('style');
+            s.textContent = 'ins.adsbygoogle, iframe[src*="doubleclick"], ' +
+                'iframe[src*="googlesyndication"], [id^="google_ads_iframe"] ' +
+                '{ display: none !important; }';
+            if (document.head) document.head.appendChild(s);
+        })();
+    """.trimIndent()
+
     val sekmeler = mutableStateListOf<Sekme>()
     var aktifId by mutableStateOf<Int?>(null)
     var ekran by mutableStateOf(Ekran.ANA)
     var gizliMod by mutableStateOf(false)
     var oynatilacak by mutableStateOf<Indirme?>(null)
+    var gizlilikOncesi by mutableStateOf(Ekran.AYARLAR)
 
     private var sayac = 0
 
     val aktifSekme: Sekme?
         get() = sekmeler.firstOrNull { it.id == aktifId }
+
+    fun gizlilikAc() {
+        gizlilikOncesi = ekran
+        ekran = Ekran.GIZLILIK
+    }
+
+    private fun hostAl(url: String?): String {
+        if (url == null) return ""
+        return Uri.parse(url).host ?: ""
+    }
 
     private fun masaustuUygula(webView: WebView) {
         webView.settings.setUserAgentString(
@@ -85,17 +125,51 @@ class SekmeYoneticisi(
         }
 
         webView.webViewClient = object : WebViewClient() {
+
+            // Her istek önce buraya sorulur. Engellenecekse boş cevap döneriz.
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                if (request == null || request.isForMainFrame) return null
+                if (engel.engellenmeliMi(request.url?.host, sekme.sayfaHost)) {
+                    sekme.engellenen = sekme.engelSayaci.incrementAndGet()
+                    engel.sayacArttir()
+                    return WebResourceResponse(
+                        "text/plain",
+                        "UTF-8",
+                        204,
+                        "No Content",
+                        emptyMap(),
+                        ByteArrayInputStream(ByteArray(0))
+                    )
+                }
+                return null
+            }
+
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                sekme.engelSayaci.set(0)
+                sekme.engellenen = 0
+                sekme.sayfaHost = hostAl(url)
+            }
+
             override fun doUpdateVisitedHistory(
                 view: WebView?,
                 url: String?,
                 isReload: Boolean
             ) {
-                if (url != null) sekme.adres = url
+                if (url != null) {
+                    sekme.adres = url
+                    sekme.sayfaHost = hostAl(url)
+                }
                 sekme.geriGidebilir = view?.canGoBack() ?: false
                 sekme.ileriGidebilir = view?.canGoForward() ?: false
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
+                if (ayar.reklamEngelle && !ayar.istisnaVarMi(sekme.sayfaHost)) {
+                    view?.evaluateJavascript(kozmetikJs, null)
+                }
                 if (!gizli && url != null && url.startsWith("http")) {
                     val baslik = view?.title
                     depo.gecmiseEkle(
@@ -119,6 +193,7 @@ class SekmeYoneticisi(
         }
 
         sekme.adres = adres
+        sekme.sayfaHost = hostAl(adres)
         webView.loadUrl(adres)
 
         sekmeler.add(sekme)
