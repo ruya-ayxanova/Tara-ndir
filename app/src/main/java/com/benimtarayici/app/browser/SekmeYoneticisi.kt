@@ -10,9 +10,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.benimtarayici.app.data.AyarDeposu
 import com.benimtarayici.app.data.VeriDeposu
 
-enum class Ekran { ANA, TARAYICI, SEKMELER, YER_IMLERI, GECMIS }
+enum class Ekran { ANA, TARAYICI, SEKMELER, YER_IMLERI, GECMIS, AYARLAR }
 
 class Sekme(val id: Int, val webView: WebView, val gizli: Boolean) {
     var baslik by mutableStateOf(if (gizli) "🕶 Yeni sekme" else "Yeni sekme")
@@ -24,8 +25,13 @@ class Sekme(val id: Int, val webView: WebView, val gizli: Boolean) {
 
 class SekmeYoneticisi(
     private val context: Context,
-    private val depo: VeriDeposu
+    private val depo: VeriDeposu,
+    private val ayar: AyarDeposu
 ) {
+
+    private val masaustuUA =
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+            "Chrome/124.0.0.0 Safari/537.36"
 
     val sekmeler = mutableStateListOf<Sekme>()
     var aktifId by mutableStateOf<Int?>(null)
@@ -37,6 +43,20 @@ class SekmeYoneticisi(
     val aktifSekme: Sekme?
         get() = sekmeler.firstOrNull { it.id == aktifId }
 
+    private fun masaustuUygula(webView: WebView) {
+        webView.settings.setUserAgentString(
+            if (ayar.masaustuSitesi) masaustuUA else null
+        )
+    }
+
+    // Ayarlarda masaüstü sitesi değişince tüm sekmelere uygulanır.
+    fun masaustuModunuUygula() {
+        sekmeler.forEach { sekme ->
+            masaustuUygula(sekme.webView)
+            if (sekme.adres.isNotBlank()) sekme.webView.reload()
+        }
+    }
+
     fun yeniSekme(adres: String, gizli: Boolean = gizliMod) {
         gizliMod = false
         sayac += 1
@@ -45,9 +65,15 @@ class SekmeYoneticisi(
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
+        webView.settings.useWideViewPort = true
+        webView.settings.loadWithOverviewMode = true
+        webView.settings.setSupportZoom(true)
+        webView.settings.builtInZoomControls = true
+        webView.settings.displayZoomControls = false
         if (gizli) {
             webView.settings.cacheMode = WebSettings.LOAD_NO_CACHE
         }
+        masaustuUygula(webView)
 
         webView.webViewClient = object : WebViewClient() {
             override fun doUpdateVisitedHistory(
