@@ -1,6 +1,7 @@
 package com.benimtarayici.app.browser
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.net.http.SslError
@@ -25,6 +26,7 @@ import com.benimtarayici.app.data.VeriDeposu
 import com.benimtarayici.app.download.Indirme
 import com.benimtarayici.app.download.IndirmeYoneticisi
 import com.benimtarayici.app.engel.EngelYoneticisi
+import com.benimtarayici.app.network.AgDurumu
 import java.io.ByteArrayInputStream
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -51,6 +53,9 @@ class Sekme(val id: Int, val webView: WebView, val gizli: Boolean) {
     var yukseltilenHttp: String? = null
     var hataVar: Boolean = false
     var sslHatasi: Boolean = false
+
+    // En son hata veren adres (bağlantı gelince yeniden denemek için).
+    var sonHataAdresi: String? = null
 }
 
 // Onay bekleyen riskli indirme.
@@ -68,7 +73,8 @@ class SekmeYoneticisi(
     private val depo: VeriDeposu,
     private val ayar: AyarDeposu,
     private val indirmeler: IndirmeYoneticisi,
-    private val engel: EngelYoneticisi
+    private val engel: EngelYoneticisi,
+    private val ag: AgDurumu
 ) {
 
     private val masaustuUA =
@@ -173,6 +179,55 @@ class SekmeYoneticisi(
         if (siteVerisi) {
             WebStorage.getInstance().deleteAllData()
         }
+    }
+
+    // ---- Bağlantı ----
+
+    // İnternet geri gelince, hata sayfasında kalan aktif sekmeyi yeniden dener.
+    fun baglantiGeldi() {
+        val sekme = aktifSekme ?: return
+        val adres = sekme.sonHataAdresi ?: return
+        if (sekme.webView.title == HataSayfasi.BASLIK) {
+            sekme.hataVar = false
+            sekme.sslHatasi = false
+            sekme.webView.loadUrl(yuksel(sekme, adres))
+        }
+    }
+
+    // Hata koduna göre kullanıcıya gösterilecek başlık ve açıklama.
+    private fun hataMetni(kod: Int): Pair<String, String> {
+        if (!ag.internetVar) {
+            return Pair(
+                "İnternet bağlantısı yok",
+                "Wi-Fi veya mobil veriyi kontrol et. Bağlantı gelince sayfa otomatik yenilenir."
+            )
+        }
+        val mesaj = when (kod) {
+            WebViewClient.ERROR_HOST_LOOKUP ->
+                "Site bulunamadı. Adresi kontrol et veya biraz sonra tekrar dene."
+
+            WebViewClient.ERROR_CONNECT ->
+                "Siteye bağlanılamadı. Site kapalı olabilir veya bağlantın engelleniyor olabilir."
+
+            WebViewClient.ERROR_TIMEOUT ->
+                "Bağlantı zaman aşımına uğradı. Site yavaş yanıt veriyor olabilir."
+
+            WebViewClient.ERROR_FAILED_SSL_HANDSHAKE ->
+                "Güvenli bağlantı kurulamadı."
+
+            WebViewClient.ERROR_REDIRECT_LOOP ->
+                "Sayfa sürekli başka bir adrese yönlendiriyor."
+
+            WebViewClient.ERROR_BAD_URL ->
+                "Adres geçersiz görünüyor."
+
+            WebViewClient.ERROR_UNSUPPORTED_SCHEME ->
+                "Bu tür bağlantı desteklenmiyor."
+
+            else ->
+                "Bilinmeyen bir bağlantı hatası oluştu."
+        }
+        return Pair("Sayfa açılamadı", mesaj)
     }
 
     // ---- HTTPS ----
@@ -302,6 +357,30 @@ class SekmeYoneticisi(
                     return true
                 }
 
+                // Hata sayfasındaki "Tekrar dene" düğmesi.
+                if (sema == "tarayici-tekrar") {
+                    val hedef = url.getQueryParameter("u")
+                    if (hedef != null && view != null) {
+                        sekme.hataVar = false
+                        sekme.sslHatasi = false
+                        view.loadUrl(yuksel(sekme, hedef))
+                    }
+                    return true
+                }
+
+                // E-posta, telefon ve SMS bağlantıları ilgili uygulamada açılır.
+                if (sema == "mailto" || sema == "tel" || sema == "sms") {
+                    try {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, url)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    } catch (e: Exception) {
+                        // Açabilecek uygulama yoksa bir şey yapma.
+                    }
+                    return true
+                }
+
                 if (request.isForMainFrame) {
                     sekme.hataVar = false
                     sekme.sslHatasi = false
@@ -337,7 +416,7 @@ class SekmeYoneticisi(
                 return null
             }
 
-            // https'e çevirdiğimiz adres açılmazsa güvenli olmayan devam seçeneği sun.
+            // Sayfa açılamazsa anlaşılır bir hata sayfası göster.
             override fun onReceivedError(
                 view: WebView?,
                 request: WebResourceRequest?,
@@ -345,22 +424,36 @@ class SekmeYoneticisi(
             ) {
                 if (view == null || request == null || !request.isForMainFrame) return
                 sekme.hataVar = true
+                val adres = request.url.toString()
+                sekme.sonHataAdresi = adres
 
+                // Sertifika hatası sayfası zaten gösterildi.
+                if (sekme.sslHatasi) return
+
+                // https'e çevirdiğimiz adres açılmadıysa güvenli olmayan devam seçeneği sun.
                 val orijinal = sekme.yukseltilenHttp
-                if (orijinal != null && !sekme.sslHatasi &&
+                if (orijinal != null && ag.internetVar &&
                     request.url.host == Uri.parse(orijinal).host
                 ) {
                     sekme.yukseltilenHttp = null
                     val html = HataSayfasi.olustur(
-                        "Güvenli bağlantı kurulamadı",
-                        "Bu site HTTPS ile açılamadı. Devam edersen gönderdiğin ve aldığın " +
-                            "bilgiler şifrelenmeden iletilir. Şifre veya kart bilgisi girme.",
-                        "Güvenli olmayan bağlantıyla devam et",
-                        HataSayfasi.devamAdresi(orijinal)
+                        baslik = "Güvenli bağlantı kurulamadı",
+                        mesaj = "Bu site HTTPS ile açılamadı. Devam edersen gönderdiğin ve " +
+                            "aldığın bilgiler şifrelenmeden iletilir. Şifre veya kart bilgisi girme.",
+                        ikincilEtiket = "Güvenli olmayan bağlantıyla devam et",
+                        ikincilAdres = HataSayfasi.devamAdresi(orijinal)
                     )
-                    val adres = request.url.toString()
                     view.loadDataWithBaseURL(adres, html, "text/html", "UTF-8", adres)
+                    return
                 }
+
+                val (baslik, mesaj) = hataMetni(error?.errorCode ?: WebViewClient.ERROR_UNKNOWN)
+                val html = HataSayfasi.olustur(
+                    baslik = baslik,
+                    mesaj = mesaj,
+                    tekrarAdresi = adres
+                )
+                view.loadDataWithBaseURL(adres, html, "text/html", "UTF-8", adres)
             }
 
             // Sertifika hatalarında sayfa açılmaz, devam seçeneği de sunulmaz.
@@ -383,8 +476,8 @@ class SekmeYoneticisi(
                     else -> "Sertifika doğrulanamadı."
                 }
                 val html = HataSayfasi.olustur(
-                    "Bağlantı güvenli değil",
-                    "$sebep Güvenliğin için sayfa açılmadı."
+                    baslik = "Bağlantı güvenli değil",
+                    mesaj = "$sebep Güvenliğin için sayfa açılmadı."
                 )
                 view.loadDataWithBaseURL(error.url, html, "text/html", "UTF-8", error.url)
             }
