@@ -7,6 +7,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <queries>
+        <package android:name="com.wireguard.android" />
+    </queries>
+
     <application
         android:label="Yeni Tarayıcı"
         android:usesCleartextTraffic="true"
