@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -47,6 +48,7 @@ import com.benimtarayici.app.ui.privacy.GizlilikScreen
 import com.benimtarayici.app.ui.settings.AyarlarScreen
 import com.benimtarayici.app.ui.tabs.SekmelerScreen
 import com.benimtarayici.app.ui.theme.TarayiciTema
+import com.benimtarayici.app.ui.vpn.VpnScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -69,7 +71,7 @@ class MainActivity : ComponentActivity() {
         ag = AgDurumu(this)
         yonetici = SekmeYoneticisi(this, depo, ayar, indirmeler, engel, ag)
 
-        // İnternet geri gelince hata sayfasındaki sekme yeniden denenir.
+        // İnternet veya VPN geri gelince hata sayfasındaki sekme yeniden denenir.
         ag.geriGeldi = { yonetici.baglantiGeldi() }
         ag.baslat()
 
@@ -91,22 +93,11 @@ class MainActivity : ComponentActivity() {
             TarayiciTema(tema = ayar.tema) {
                 Column(modifier = Modifier.fillMaxSize()) {
 
-                    // İnternet yokken en üstte uyarı bandı.
+                    // Üstteki uyarı bandı: önce internet, sonra VPN kontrolü.
                     if (!ag.internetVar) {
-                        Surface(
-                            color = Color(0xFFB3261E),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "📵 İnternet bağlantısı yok",
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelLarge,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(8.dp)
-                            )
-                        }
+                        UyariBandi("📵 İnternet bağlantısı yok")
+                    } else if (yonetici.vpnEngeli()) {
+                        UyariBandi("🔐 VPN bağlı değil (zorunlu mod açık)")
                     }
 
                     Box(modifier = Modifier.weight(1f)) {
@@ -212,12 +203,21 @@ class MainActivity : ComponentActivity() {
 
                             Ekran.AYARLAR -> AyarlarScreen(
                                 ayar = ayar,
+                                vpnOzeti = if (ag.vpnBagli) "Bağlı" else "Bağlı değil",
                                 onMasaustuDegistir = {
                                     ayar.masaustuDegistir(it)
                                     yonetici.masaustuModunuUygula()
                                 },
                                 onGizlilik = { yonetici.gizlilikAc() },
+                                onVpn = { yonetici.ekran = Ekran.VPN },
                                 onGeri = { yonetici.ekran = Ekran.ANA }
+                            )
+
+                            Ekran.VPN -> VpnScreen(
+                                ag = ag,
+                                onVpnAyarlari = { vpnAyarlariniAc() },
+                                onWireGuard = { wireGuardAc() },
+                                onGeri = { yonetici.ekran = Ekran.AYARLAR }
                             )
 
                             Ekran.GIZLILIK -> GizlilikScreen(
@@ -246,7 +246,7 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onAc = { indirmeyiAc(it) },
                                 onDuraklat = { indirmeler.duraklat(it) },
-                                onDevamEt = { indirmeler.devamEt(it) },
+                                onDevamEt = { devamEttir(it) },
                                 onKaldir = { indirmeler.kaldir(it) },
                                 onGeri = {
                                     yonetici.ekran = if (yonetici.aktifSekme != null) {
@@ -271,6 +271,68 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun UyariBandi(metin: String) {
+        Surface(
+            color = Color(0xFFB3261E),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = metin,
+                color = Color.White,
+                style = MaterialTheme.typography.labelLarge,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+            )
+        }
+    }
+
+    // VPN zorunlu modunda VPN yokken duraklatılmış indirme devam ettirilmez.
+    private fun devamEttir(indirme: Indirme) {
+        if (yonetici.vpnEngeli()) {
+            Toast.makeText(
+                this,
+                "VPN zorunlu modu açık ve VPN bağlı değil.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        indirmeler.devamEt(indirme)
+    }
+
+    private fun vpnAyarlariniAc() {
+        try {
+            startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
+        } catch (e: Exception) {
+            Toast.makeText(
+                this,
+                "VPN ayarları açılamadı. Telefon Ayarları > Bağlantılar bölümüne bak.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun wireGuardAc() {
+        val niyet = packageManager.getLaunchIntentForPackage("com.wireguard.android")
+        try {
+            if (niyet != null) {
+                startActivity(niyet)
+            } else {
+                // Yüklü değilse Play Store sayfasını aç.
+                startActivity(
+                    Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("https://play.google.com/store/apps/details?id=com.wireguard.android")
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "WireGuard açılamadı", Toast.LENGTH_LONG).show()
         }
     }
 
