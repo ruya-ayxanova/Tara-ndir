@@ -11,10 +11,21 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -26,6 +37,7 @@ import com.benimtarayici.app.download.Indirme
 import com.benimtarayici.app.download.IndirmeDurumu
 import com.benimtarayici.app.download.IndirmeYoneticisi
 import com.benimtarayici.app.engel.EngelYoneticisi
+import com.benimtarayici.app.network.AgDurumu
 import com.benimtarayici.app.ui.browser.BrowserScreen
 import com.benimtarayici.app.ui.downloads.IndirmelerScreen
 import com.benimtarayici.app.ui.home.HomeScreen
@@ -42,6 +54,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var ayar: AyarDeposu
     private lateinit var indirmeler: IndirmeYoneticisi
     private lateinit var engel: EngelYoneticisi
+    private lateinit var ag: AgDurumu
     private lateinit var yonetici: SekmeYoneticisi
 
     private val bildirimIzni =
@@ -53,7 +66,12 @@ class MainActivity : ComponentActivity() {
         ayar = AyarDeposu(this)
         indirmeler = IndirmeYoneticisi.al(this)
         engel = EngelYoneticisi(this, ayar)
-        yonetici = SekmeYoneticisi(this, depo, ayar, indirmeler, engel)
+        ag = AgDurumu(this)
+        yonetici = SekmeYoneticisi(this, depo, ayar, indirmeler, engel, ag)
+
+        // İnternet geri gelince hata sayfasındaki sekme yeniden denenir.
+        ag.geriGeldi = { yonetici.baglantiGeldi() }
+        ag.baslat()
 
         // İlk indirmede bildirim izni iste (Android 13 ve üstü).
         indirmeler.izinIste = {
@@ -71,161 +89,184 @@ class MainActivity : ComponentActivity() {
             }
 
             TarayiciTema(tema = ayar.tema) {
+                Column(modifier = Modifier.fillMaxSize()) {
 
-                // Riskli indirme uyarısı (her ekranda görünebilir).
-                val bekleyen = yonetici.onayBekleyen
-                if (bekleyen != null) {
-                    AlertDialog(
-                        onDismissRequest = { yonetici.indirmeyiReddet() },
-                        title = { Text("İndirme uyarısı") },
-                        text = {
+                    // İnternet yokken en üstte uyarı bandı.
+                    if (!ag.internetVar) {
+                        Surface(
+                            color = Color(0xFFB3261E),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Text(
-                                bekleyen.dosyaAdi + "\n\n" +
-                                    bekleyen.nedenler.joinToString("\n\n") { "• $it" }
-                            )
-                        },
-                        confirmButton = {
-                            TextButton(onClick = { yonetici.indirmeyiOnayla() }) {
-                                Text("Yine de indir")
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { yonetici.indirmeyiReddet() }) {
-                                Text("Vazgeç")
-                            }
-                        }
-                    )
-                }
-
-                when (yonetici.ekran) {
-                    Ekran.ANA -> HomeScreen(
-                        sekmeSayisi = yonetici.sekmeler.size,
-                        gizliMod = yonetici.gizliMod,
-                        onAdresAc = { yonetici.yeniSekme(it) },
-                        onSekmeler = { yonetici.ekran = Ekran.SEKMELER },
-                        onGizliDegistir = { yonetici.gizliMod = !yonetici.gizliMod },
-                        onYerImleri = { yonetici.ekran = Ekran.YER_IMLERI },
-                        onGecmis = { yonetici.ekran = Ekran.GECMIS },
-                        onIndirmeler = { yonetici.ekran = Ekran.INDIRMELER },
-                        onAyarlar = { yonetici.ekran = Ekran.AYARLAR }
-                    )
-
-                    Ekran.TARAYICI -> {
-                        val sekme = yonetici.aktifSekme
-                        if (sekme != null) {
-                            val host = Uri.parse(sekme.adres).host ?: ""
-                            BrowserScreen(
-                                sekme = sekme,
-                                sekmeSayisi = yonetici.sekmeler.size,
-                                yerImiVar = depo.yerImiVarMi(sekme.adres),
-                                istisnaVar = ayar.istisnaVarMi(host),
-                                onAdresGit = { yonetici.adresAc(sekme, it) },
-                                onYerImi = {
-                                    depo.yerImiDegistir(
-                                        sekme.baslik.removePrefix("🕶 "),
-                                        sekme.adres
-                                    )
-                                },
-                                onIstisna = {
-                                    ayar.istisnaDegistir(host)
-                                    sekme.webView.reload()
-                                },
-                                onGizlilik = { yonetici.gizlilikAc() },
-                                onAnaSayfa = { yonetici.ekran = Ekran.ANA },
-                                onSekmeler = { yonetici.ekran = Ekran.SEKMELER }
+                                text = "📵 İnternet bağlantısı yok",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelLarge,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp)
                             )
                         }
                     }
 
-                    Ekran.SEKMELER -> SekmelerScreen(
-                        sekmeler = yonetici.sekmeler,
-                        aktifId = yonetici.aktifId,
-                        onSec = { yonetici.sekmeyeGec(it) },
-                        onKapat = { yonetici.sekmeKapat(it) },
-                        onYeni = { yonetici.ekran = Ekran.ANA },
-                        onGeri = {
-                            yonetici.ekran = if (yonetici.aktifSekme != null) {
-                                Ekran.TARAYICI
-                            } else {
-                                Ekran.ANA
-                            }
-                        }
-                    )
+                    Box(modifier = Modifier.weight(1f)) {
 
-                    Ekran.YER_IMLERI -> KayitListesiScreen(
-                        baslik = "Yer imleri",
-                        kayitlar = depo.yerImleri,
-                        bosMesaj = "Henüz yer imi yok. Bir sayfada adres çubuğundaki ☆ işaretine dokun.",
-                        onAc = { yonetici.yeniSekme(it.adres, false) },
-                        onSil = { depo.yerImiSil(it) },
-                        onGeri = { yonetici.ekran = Ekran.ANA }
-                    )
-
-                    Ekran.GECMIS -> KayitListesiScreen(
-                        baslik = "Geçmiş",
-                        kayitlar = depo.gecmis,
-                        bosMesaj = "Geçmiş boş.",
-                        onAc = { yonetici.yeniSekme(it.adres, false) },
-                        onSil = { depo.gecmistenSil(it) },
-                        onGeri = { yonetici.ekran = Ekran.ANA },
-                        onHepsiniTemizle = { depo.gecmisiTemizle() }
-                    )
-
-                    Ekran.AYARLAR -> AyarlarScreen(
-                        ayar = ayar,
-                        onMasaustuDegistir = {
-                            ayar.masaustuDegistir(it)
-                            yonetici.masaustuModunuUygula()
-                        },
-                        onGizlilik = { yonetici.gizlilikAc() },
-                        onGeri = { yonetici.ekran = Ekran.ANA }
-                    )
-
-                    Ekran.GIZLILIK -> GizlilikScreen(
-                        ayar = ayar,
-                        engel = engel,
-                        onCerezKabul = {
-                            ayar.cerezKabulDegistir(it)
-                            yonetici.cerezAyarlariniUygula()
-                        },
-                        onUcuncuTaraf = {
-                            ayar.ucuncuTarafCerezDegistir(it)
-                            yonetici.cerezAyarlariniUygula()
-                        },
-                        onTemizle = { gecmis, cerez, onbellek, siteVerisi ->
-                            yonetici.verileriTemizle(gecmis, cerez, onbellek, siteVerisi)
-                        },
-                        onGeri = { yonetici.ekran = yonetici.gizlilikOncesi }
-                    )
-
-                    Ekran.INDIRMELER -> IndirmelerScreen(
-                        indirmeler = indirmeler.indirmeler,
-                        konumMetni = if (ayar.indirmeKonumu.isEmpty()) {
-                            "Konum: uygulama klasörü (Android/data/com.benimtarayici.app/files/Download)"
-                        } else {
-                            "Konum: ${ayar.indirmeKonumuAdi}"
-                        },
-                        onAc = { indirmeyiAc(it) },
-                        onDuraklat = { indirmeler.duraklat(it) },
-                        onDevamEt = { indirmeler.devamEt(it) },
-                        onKaldir = { indirmeler.kaldir(it) },
-                        onGeri = {
-                            yonetici.ekran = if (yonetici.aktifSekme != null) {
-                                Ekran.TARAYICI
-                            } else {
-                                Ekran.ANA
-                            }
-                        }
-                    )
-
-                    Ekran.VIDEO -> {
-                        val video = yonetici.oynatilacak
-                        if (video != null) {
-                            VideoScreen(
-                                baslik = video.dosyaAdi,
-                                uri = indirmeler.acmaUri(video),
-                                onGeri = { yonetici.ekran = Ekran.INDIRMELER }
+                        // Riskli indirme uyarısı (her ekranda görünebilir).
+                        val bekleyen = yonetici.onayBekleyen
+                        if (bekleyen != null) {
+                            AlertDialog(
+                                onDismissRequest = { yonetici.indirmeyiReddet() },
+                                title = { Text("İndirme uyarısı") },
+                                text = {
+                                    Text(
+                                        bekleyen.dosyaAdi + "\n\n" +
+                                            bekleyen.nedenler.joinToString("\n\n") { "• $it" }
+                                    )
+                                },
+                                confirmButton = {
+                                    TextButton(onClick = { yonetici.indirmeyiOnayla() }) {
+                                        Text("Yine de indir")
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { yonetici.indirmeyiReddet() }) {
+                                        Text("Vazgeç")
+                                    }
+                                }
                             )
+                        }
+
+                        when (yonetici.ekran) {
+                            Ekran.ANA -> HomeScreen(
+                                sekmeSayisi = yonetici.sekmeler.size,
+                                gizliMod = yonetici.gizliMod,
+                                onAdresAc = { yonetici.yeniSekme(it) },
+                                onSekmeler = { yonetici.ekran = Ekran.SEKMELER },
+                                onGizliDegistir = { yonetici.gizliMod = !yonetici.gizliMod },
+                                onYerImleri = { yonetici.ekran = Ekran.YER_IMLERI },
+                                onGecmis = { yonetici.ekran = Ekran.GECMIS },
+                                onIndirmeler = { yonetici.ekran = Ekran.INDIRMELER },
+                                onAyarlar = { yonetici.ekran = Ekran.AYARLAR }
+                            )
+
+                            Ekran.TARAYICI -> {
+                                val sekme = yonetici.aktifSekme
+                                if (sekme != null) {
+                                    val host = Uri.parse(sekme.adres).host ?: ""
+                                    BrowserScreen(
+                                        sekme = sekme,
+                                        sekmeSayisi = yonetici.sekmeler.size,
+                                        yerImiVar = depo.yerImiVarMi(sekme.adres),
+                                        istisnaVar = ayar.istisnaVarMi(host),
+                                        onAdresGit = { yonetici.adresAc(sekme, it) },
+                                        onYerImi = {
+                                            depo.yerImiDegistir(
+                                                sekme.baslik.removePrefix("🕶 "),
+                                                sekme.adres
+                                            )
+                                        },
+                                        onIstisna = {
+                                            ayar.istisnaDegistir(host)
+                                            sekme.webView.reload()
+                                        },
+                                        onGizlilik = { yonetici.gizlilikAc() },
+                                        onAnaSayfa = { yonetici.ekran = Ekran.ANA },
+                                        onSekmeler = { yonetici.ekran = Ekran.SEKMELER }
+                                    )
+                                }
+                            }
+
+                            Ekran.SEKMELER -> SekmelerScreen(
+                                sekmeler = yonetici.sekmeler,
+                                aktifId = yonetici.aktifId,
+                                onSec = { yonetici.sekmeyeGec(it) },
+                                onKapat = { yonetici.sekmeKapat(it) },
+                                onYeni = { yonetici.ekran = Ekran.ANA },
+                                onGeri = {
+                                    yonetici.ekran = if (yonetici.aktifSekme != null) {
+                                        Ekran.TARAYICI
+                                    } else {
+                                        Ekran.ANA
+                                    }
+                                }
+                            )
+
+                            Ekran.YER_IMLERI -> KayitListesiScreen(
+                                baslik = "Yer imleri",
+                                kayitlar = depo.yerImleri,
+                                bosMesaj = "Henüz yer imi yok. Bir sayfada adres çubuğundaki ☆ işaretine dokun.",
+                                onAc = { yonetici.yeniSekme(it.adres, false) },
+                                onSil = { depo.yerImiSil(it) },
+                                onGeri = { yonetici.ekran = Ekran.ANA }
+                            )
+
+                            Ekran.GECMIS -> KayitListesiScreen(
+                                baslik = "Geçmiş",
+                                kayitlar = depo.gecmis,
+                                bosMesaj = "Geçmiş boş.",
+                                onAc = { yonetici.yeniSekme(it.adres, false) },
+                                onSil = { depo.gecmistenSil(it) },
+                                onGeri = { yonetici.ekran = Ekran.ANA },
+                                onHepsiniTemizle = { depo.gecmisiTemizle() }
+                            )
+
+                            Ekran.AYARLAR -> AyarlarScreen(
+                                ayar = ayar,
+                                onMasaustuDegistir = {
+                                    ayar.masaustuDegistir(it)
+                                    yonetici.masaustuModunuUygula()
+                                },
+                                onGizlilik = { yonetici.gizlilikAc() },
+                                onGeri = { yonetici.ekran = Ekran.ANA }
+                            )
+
+                            Ekran.GIZLILIK -> GizlilikScreen(
+                                ayar = ayar,
+                                engel = engel,
+                                onCerezKabul = {
+                                    ayar.cerezKabulDegistir(it)
+                                    yonetici.cerezAyarlariniUygula()
+                                },
+                                onUcuncuTaraf = {
+                                    ayar.ucuncuTarafCerezDegistir(it)
+                                    yonetici.cerezAyarlariniUygula()
+                                },
+                                onTemizle = { gecmis, cerez, onbellek, siteVerisi ->
+                                    yonetici.verileriTemizle(gecmis, cerez, onbellek, siteVerisi)
+                                },
+                                onGeri = { yonetici.ekran = yonetici.gizlilikOncesi }
+                            )
+
+                            Ekran.INDIRMELER -> IndirmelerScreen(
+                                indirmeler = indirmeler.indirmeler,
+                                konumMetni = if (ayar.indirmeKonumu.isEmpty()) {
+                                    "Konum: uygulama klasörü (Android/data/com.benimtarayici.app/files/Download)"
+                                } else {
+                                    "Konum: ${ayar.indirmeKonumuAdi}"
+                                },
+                                onAc = { indirmeyiAc(it) },
+                                onDuraklat = { indirmeler.duraklat(it) },
+                                onDevamEt = { indirmeler.devamEt(it) },
+                                onKaldir = { indirmeler.kaldir(it) },
+                                onGeri = {
+                                    yonetici.ekran = if (yonetici.aktifSekme != null) {
+                                        Ekran.TARAYICI
+                                    } else {
+                                        Ekran.ANA
+                                    }
+                                }
+                            )
+
+                            Ekran.VIDEO -> {
+                                val video = yonetici.oynatilacak
+                                if (video != null) {
+                                    VideoScreen(
+                                        baslik = video.dosyaAdi,
+                                        uri = indirmeler.acmaUri(video),
+                                        onGeri = { yonetici.ekran = Ekran.INDIRMELER }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -279,6 +320,8 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         // İndirmeler arka planda sürebilir, burada durdurmuyoruz.
         indirmeler.izinIste = null
+        ag.geriGeldi = null
+        ag.durdur()
         engel.kaydet()
         yonetici.hepsiniYokEt()
         super.onDestroy()
