@@ -35,8 +35,10 @@ import com.benimtarayici.app.ui.common.AltButon
 @Composable
 fun AyarlarScreen(
     ayar: AyarDeposu,
+    vpnOzeti: String,
     onMasaustuDegistir: (Boolean) -> Unit,
     onGizlilik: () -> Unit,
+    onVpn: () -> Unit,
     onGeri: () -> Unit
 ) {
     BackHandler(enabled = true) { onGeri() }
@@ -104,6 +106,28 @@ fun AyarlarScreen(
                     style = MaterialTheme.typography.bodyLarge
                 )
                 Text(text = "›", fontSize = 22.sp)
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onVpn)
+                    .padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "🔐 VPN",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(
+                    text = vpnOzeti,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "  ›",
+                    fontSize = 22.sp
+                )
             }
 
             Spacer(modifier = Modifier.height(12.dp))
