@@ -16,6 +16,7 @@ import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -31,7 +32,7 @@ import java.io.ByteArrayInputStream
 import java.util.concurrent.atomic.AtomicInteger
 
 enum class Ekran {
-    ANA, TARAYICI, SEKMELER, YER_IMLERI, GECMIS, AYARLAR, INDIRMELER, VIDEO, GIZLILIK
+    ANA, TARAYICI, SEKMELER, YER_IMLERI, GECMIS, AYARLAR, INDIRMELER, VIDEO, GIZLILIK, VPN
 }
 
 class Sekme(val id: Int, val webView: WebView, val gizli: Boolean) {
@@ -51,10 +52,14 @@ class Sekme(val id: Int, val webView: WebView, val gizli: Boolean) {
 
     // https'e çevrilen http adresinin orijinali (hata olursa sormak için).
     var yukseltilenHttp: String? = null
-    var hataVar: Boolean = false
     var sslHatasi: Boolean = false
 
-    // En son hata veren adres (bağlantı gelince yeniden denemek için).
+    // Hata sayfası gösteriliyor mu / en son hata veren adres.
+    // Arka plan iş parçacığından da yazıldığı için @Volatile.
+    @Volatile
+    var hataVar: Boolean = false
+
+    @Volatile
     var sonHataAdresi: String? = null
 }
 
@@ -122,9 +127,23 @@ class SekmeYoneticisi(
         ekran = Ekran.GIZLILIK
     }
 
+    // VPN zorunlu modu açık ve VPN yoksa true döner: hiçbir istek çıkmamalı.
+    fun vpnEngeli(): Boolean = ag.vpnZorunlu && !ag.vpnBagli
+
     private fun hostAl(url: String?): String {
         if (url == null) return ""
         return Uri.parse(url).host ?: ""
+    }
+
+    private fun bosCevap(): WebResourceResponse {
+        return WebResourceResponse(
+            "text/plain",
+            "UTF-8",
+            204,
+            "No Content",
+            emptyMap(),
+            ByteArrayInputStream(ByteArray(0))
+        )
     }
 
     private fun masaustuUygula(webView: WebView) {
@@ -183,7 +202,7 @@ class SekmeYoneticisi(
 
     // ---- Bağlantı ----
 
-    // İnternet geri gelince, hata sayfasında kalan aktif sekmeyi yeniden dener.
+    // İnternet veya VPN geri gelince, hata sayfasında kalan aktif sekmeyi yeniden dener.
     fun baglantiGeldi() {
         val sekme = aktifSekme ?: return
         val adres = sekme.sonHataAdresi ?: return
@@ -270,6 +289,14 @@ class SekmeYoneticisi(
         contentDisposition: String?,
         mimeType: String?
     ) {
+        if (vpnEngeli()) {
+            Toast.makeText(
+                context,
+                "VPN zorunlu modu açık ve VPN bağlı değil. İndirme başlatılmadı.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
         val ad = URLUtil.guessFileName(url, contentDisposition, mimeType)
         val nedenler = riskNedenleri(url, ad)
         if (nedenler.isEmpty()) {
@@ -284,6 +311,14 @@ class SekmeYoneticisi(
     fun indirmeyiOnayla() {
         val bekleyen = onayBekleyen ?: return
         onayBekleyen = null
+        if (vpnEngeli()) {
+            Toast.makeText(
+                context,
+                "VPN zorunlu modu açık ve VPN bağlı değil. İndirme başlatılmadı.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
         indirmeler.baslat(
             bekleyen.adres,
             bekleyen.userAgent,
@@ -395,23 +430,39 @@ class SekmeYoneticisi(
                 return false
             }
 
-            // Her istek önce buraya sorulur. Engellenecekse boş cevap döneriz.
+            // Her istek önce buraya sorulur: VPN kontrolü ve reklam/izleyici engelleme.
             override fun shouldInterceptRequest(
                 view: WebView?,
                 request: WebResourceRequest?
             ): WebResourceResponse? {
-                if (request == null || request.isForMainFrame) return null
+                if (request == null) return null
+
+                // VPN zorunlu modunda VPN yoksa hiçbir istek dışarı çıkmaz.
+                if (vpnEngeli()) {
+                    if (request.isForMainFrame) {
+                        val adres = request.url.toString()
+                        sekme.hataVar = true
+                        sekme.sonHataAdresi = adres
+                        val html = HataSayfasi.olustur(
+                            baslik = "VPN bağlı değil",
+                            mesaj = "VPN zorunlu modu açık, bu yüzden VPN bağlanana kadar " +
+                                "sayfalar açılmaz. VPN'e bağlandığında sayfa otomatik yenilenir.",
+                            tekrarAdresi = adres
+                        )
+                        return WebResourceResponse(
+                            "text/html",
+                            "UTF-8",
+                            ByteArrayInputStream(html.toByteArray(Charsets.UTF_8))
+                        )
+                    }
+                    return bosCevap()
+                }
+
+                if (request.isForMainFrame) return null
                 if (engel.engellenmeliMi(request.url?.host, sekme.sayfaHost)) {
                     sekme.engellenen = sekme.engelSayaci.incrementAndGet()
                     engel.sayacArttir()
-                    return WebResourceResponse(
-                        "text/plain",
-                        "UTF-8",
-                        204,
-                        "No Content",
-                        emptyMap(),
-                        ByteArrayInputStream(ByteArray(0))
-                    )
+                    return bosCevap()
                 }
                 return null
             }
