@@ -1,5 +1,6 @@
 package com.benimtarayici.app.ui.browser
 
+import android.net.Uri
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
@@ -45,6 +46,7 @@ fun BrowserScreen(
     sekmeSayisi: Int,
     yerImiVar: Boolean,
     istisnaVar: Boolean,
+    onAdresGit: (String) -> Unit,
     onYerImi: () -> Unit,
     onIstisna: () -> Unit,
     onGizlilik: () -> Unit,
@@ -57,6 +59,14 @@ fun BrowserScreen(
     LaunchedEffect(sekme.id, sekme.adres) {
         adresMetni = sekme.adres
     }
+
+    // Adres çubuğunun solundaki simge: gizli sekme ve bağlantı güvenliği.
+    val guvenlik = when (Uri.parse(sekme.adres).scheme) {
+        "https" -> "🔒"
+        "http" -> "⚠️"
+        else -> ""
+    }
+    val onEk = ((if (sekme.gizli) "🕶 " else "") + guvenlik).trim()
 
     // Telefonun geri tuşu: önce sayfada geri git, gidemiyorsa ana sayfaya dön.
     BackHandler(enabled = true) {
@@ -112,8 +122,8 @@ fun BrowserScreen(
                     .padding(horizontal = 8.dp, vertical = 6.dp),
                 singleLine = true,
                 shape = RoundedCornerShape(24.dp),
-                leadingIcon = if (sekme.gizli) {
-                    { Text("🕶", fontSize = 18.sp) }
+                leadingIcon = if (onEk.isNotEmpty()) {
+                    { Text(onEk, fontSize = 18.sp) }
                 } else {
                     null
                 },
@@ -131,7 +141,7 @@ fun BrowserScreen(
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = {
                     if (adresMetni.isNotBlank()) {
-                        sekme.webView.loadUrl(UrlYardimci.adresYaDaAramaYap(adresMetni))
+                        onAdresGit(UrlYardimci.adresYaDaAramaYap(adresMetni))
                         odak.clearFocus()
                     }
                 })
