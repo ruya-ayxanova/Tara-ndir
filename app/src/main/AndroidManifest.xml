@@ -8,6 +8,7 @@
 
     <application
         android:label="Yeni Tarayıcı"
+        android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity
