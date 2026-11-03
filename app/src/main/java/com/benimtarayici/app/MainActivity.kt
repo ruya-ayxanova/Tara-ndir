@@ -11,6 +11,9 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -68,6 +71,32 @@ class MainActivity : ComponentActivity() {
             }
 
             TarayiciTema(tema = ayar.tema) {
+
+                // Riskli indirme uyarısı (her ekranda görünebilir).
+                val bekleyen = yonetici.onayBekleyen
+                if (bekleyen != null) {
+                    AlertDialog(
+                        onDismissRequest = { yonetici.indirmeyiReddet() },
+                        title = { Text("İndirme uyarısı") },
+                        text = {
+                            Text(
+                                bekleyen.dosyaAdi + "\n\n" +
+                                    bekleyen.nedenler.joinToString("\n\n") { "• $it" }
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { yonetici.indirmeyiOnayla() }) {
+                                Text("Yine de indir")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { yonetici.indirmeyiReddet() }) {
+                                Text("Vazgeç")
+                            }
+                        }
+                    )
+                }
+
                 when (yonetici.ekran) {
                     Ekran.ANA -> HomeScreen(
                         sekmeSayisi = yonetici.sekmeler.size,
@@ -90,6 +119,7 @@ class MainActivity : ComponentActivity() {
                                 sekmeSayisi = yonetici.sekmeler.size,
                                 yerImiVar = depo.yerImiVarMi(sekme.adres),
                                 istisnaVar = ayar.istisnaVarMi(host),
+                                onAdresGit = { yonetici.adresAc(sekme, it) },
                                 onYerImi = {
                                     depo.yerImiDegistir(
                                         sekme.baslik.removePrefix("🕶 "),
