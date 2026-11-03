@@ -13,6 +13,11 @@ object HataSayfasi {
         return "tarayici-devam://git?u=" + Uri.encode(httpAdres)
     }
 
+    // "Tekrar dene" düğmesinin adresi.
+    fun tekrarLinki(adres: String): String {
+        return "tarayici-tekrar://yeniden?u=" + Uri.encode(adres)
+    }
+
     private fun kacir(metin: String): String {
         return metin
             .replace("&", "&amp;")
@@ -24,6 +29,7 @@ object HataSayfasi {
     fun olustur(
         baslik: String,
         mesaj: String,
+        tekrarAdresi: String? = null,
         ikincilEtiket: String? = null,
         ikincilAdres: String? = null
     ): String {
@@ -37,6 +43,14 @@ object HataSayfasi {
             .birincil{background:#e8590c;color:#fff}
             .ikincil{border:2px solid #e8590c;color:#e8590c}
         """.trimIndent()
+
+        // Tekrar dene varsa o ana düğme olur, Geri dön ikincil düğmeye geçer.
+        val tekrar = if (tekrarAdresi != null) {
+            "<a class=\"birincil\" href=\"${kacir(tekrarLinki(tekrarAdresi))}\">Tekrar dene</a>"
+        } else {
+            ""
+        }
+        val geriSinifi = if (tekrarAdresi != null) "ikincil" else "birincil"
 
         val ikincil = if (ikincilEtiket != null && ikincilAdres != null) {
             "<a class=\"ikincil\" href=\"${kacir(ikincilAdres)}\">${kacir(ikincilEtiket)}</a>"
@@ -58,7 +72,8 @@ object HataSayfasi {
             <div class="simge">⚠️</div>
             <h1>${kacir(baslik)}</h1>
             <p>${kacir(mesaj)}</p>
-            <a class="birincil" href="${GERI}">Geri dön</a>
+            ${tekrar}
+            <a class="${geriSinifi}" href="${GERI}">Geri dön</a>
             ${ikincil}
             </div>
             </body>
