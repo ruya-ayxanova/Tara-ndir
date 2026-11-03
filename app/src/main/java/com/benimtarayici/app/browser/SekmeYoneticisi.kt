@@ -3,8 +3,12 @@ package com.benimtarayici.app.browser
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import android.net.http.SslError
 import android.webkit.CookieManager
+import android.webkit.SslErrorHandler
+import android.webkit.URLUtil
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -42,7 +46,22 @@ class Sekme(val id: Int, val webView: WebView, val gizli: Boolean) {
     // Arka plan iş parçacığından okunduğu için düz değişken.
     @Volatile
     var sayfaHost: String = ""
+
+    // https'e çevrilen http adresinin orijinali (hata olursa sormak için).
+    var yukseltilenHttp: String? = null
+    var hataVar: Boolean = false
+    var sslHatasi: Boolean = false
 }
+
+// Onay bekleyen riskli indirme.
+class BekleyenIndirme(
+    val adres: String,
+    val userAgent: String?,
+    val contentDisposition: String?,
+    val mimeType: String?,
+    val dosyaAdi: String,
+    val nedenler: List<String>
+)
 
 class SekmeYoneticisi(
     private val context: Context,
@@ -67,12 +86,21 @@ class SekmeYoneticisi(
         })();
     """.trimIndent()
 
+    private val riskliUzantilar = setOf(
+        "apk", "xapk", "apks", "exe", "msi", "bat", "cmd", "scr",
+        "jar", "vbs", "ps1", "sh", "dll", "lnk", "hta", "dex"
+    )
+
+    // Kullanıcının bu oturumda http ile devam etmeyi onayladığı siteler.
+    private val httpIzinli = HashSet<String>()
+
     val sekmeler = mutableStateListOf<Sekme>()
     var aktifId by mutableStateOf<Int?>(null)
     var ekran by mutableStateOf(Ekran.ANA)
     var gizliMod by mutableStateOf(false)
     var oynatilacak by mutableStateOf<Indirme?>(null)
     var gizlilikOncesi by mutableStateOf(Ekran.AYARLAR)
+    var onayBekleyen by mutableStateOf<BekleyenIndirme?>(null)
 
     private var sayac = 0
 
@@ -147,6 +175,74 @@ class SekmeYoneticisi(
         }
     }
 
+    // ---- HTTPS ----
+
+    // http adresini https'e çevirir (site için izin verilmediyse).
+    // Çevrildiyse orijinali sekmeye not eder.
+    private fun yuksel(sekme: Sekme, adres: String): String {
+        val uri = Uri.parse(adres)
+        if (uri.scheme == "http" && !httpIzinli.contains(uri.host ?: "")) {
+            sekme.yukseltilenHttp = adres
+            return uri.buildUpon().scheme("https").build().toString()
+        }
+        return adres
+    }
+
+    // Adres çubuğundan veya dışarıdan gelen adresi güvenli şekilde açar.
+    fun adresAc(sekme: Sekme, adres: String) {
+        sekme.hataVar = false
+        sekme.sslHatasi = false
+        sekme.webView.loadUrl(yuksel(sekme, adres))
+    }
+
+    // ---- İndirme güvenliği ----
+
+    private fun riskNedenleri(url: String, dosyaAdi: String): List<String> {
+        val nedenler = mutableListOf<String>()
+        val uzanti = dosyaAdi.substringAfterLast('.', "").lowercase()
+        if (uzanti in riskliUzantilar) {
+            nedenler.add("\".$uzanti\" dosyaları cihazına zarar verebilecek programlar olabilir.")
+        }
+        if (url.startsWith("http://")) {
+            nedenler.add("Bağlantı şifrelenmemiş (http). Dosya yolda değiştirilmiş olabilir.")
+        }
+        return nedenler
+    }
+
+    private fun indirmeIstegi(
+        url: String,
+        userAgent: String?,
+        contentDisposition: String?,
+        mimeType: String?
+    ) {
+        val ad = URLUtil.guessFileName(url, contentDisposition, mimeType)
+        val nedenler = riskNedenleri(url, ad)
+        if (nedenler.isEmpty()) {
+            indirmeler.baslat(url, userAgent, contentDisposition, mimeType)
+        } else {
+            onayBekleyen = BekleyenIndirme(
+                url, userAgent, contentDisposition, mimeType, ad, nedenler
+            )
+        }
+    }
+
+    fun indirmeyiOnayla() {
+        val bekleyen = onayBekleyen ?: return
+        onayBekleyen = null
+        indirmeler.baslat(
+            bekleyen.adres,
+            bekleyen.userAgent,
+            bekleyen.contentDisposition,
+            bekleyen.mimeType
+        )
+    }
+
+    fun indirmeyiReddet() {
+        onayBekleyen = null
+    }
+
+    // ---- Sekmeler ----
+
     fun yeniSekme(adres: String, gizli: Boolean = gizliMod) {
         gizliMod = false
         sayac += 1
@@ -160,6 +256,7 @@ class SekmeYoneticisi(
         webView.settings.setSupportZoom(true)
         webView.settings.builtInZoomControls = true
         webView.settings.displayZoomControls = false
+        webView.settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         if (gizli) {
             webView.settings.cacheMode = WebSettings.LOAD_NO_CACHE
         }
@@ -167,12 +264,57 @@ class SekmeYoneticisi(
         CookieManager.getInstance()
             .setAcceptThirdPartyCookies(webView, ayar.ucuncuTarafCerez)
 
-        // Sayfa bir dosya indirmek isterse indirme yöneticisine devret.
+        // Sayfa bir dosya indirmek isterse önce güvenlik kontrolünden geçir.
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
-            indirmeler.baslat(url, userAgent, contentDisposition, mimeType)
+            indirmeIstegi(url, userAgent, contentDisposition, mimeType)
         }
 
         webView.webViewClient = object : WebViewClient() {
+
+            // Bağlantı tıklamaları ve yönlendirmeler burada kontrol edilir.
+            override fun shouldOverrideUrlLoading(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): Boolean {
+                if (request == null) return false
+                val url = request.url
+                val sema = url.scheme ?: return false
+
+                // Hata sayfasındaki "Geri dön" düğmesi.
+                if (sema == "tarayici-geri") {
+                    if (view != null && view.canGoBack()) {
+                        view.goBack()
+                    } else {
+                        view?.loadUrl("about:blank")
+                    }
+                    return true
+                }
+
+                // Hata sayfasındaki "Güvenli olmayan bağlantıyla devam et" düğmesi.
+                if (sema == "tarayici-devam") {
+                    val hedef = url.getQueryParameter("u")
+                    if (hedef != null && view != null) {
+                        sekme.hataVar = false
+                        sekme.sslHatasi = false
+                        httpIzinli.add(Uri.parse(hedef).host ?: "")
+                        view.loadUrl(hedef)
+                    }
+                    return true
+                }
+
+                if (request.isForMainFrame) {
+                    sekme.hataVar = false
+                    sekme.sslHatasi = false
+                    if (sema == "http") {
+                        val yeni = yuksel(sekme, url.toString())
+                        if (yeni != url.toString()) {
+                            view?.loadUrl(yeni)
+                            return true
+                        }
+                    }
+                }
+                return false
+            }
 
             // Her istek önce buraya sorulur. Engellenecekse boş cevap döneriz.
             override fun shouldInterceptRequest(
@@ -195,6 +337,58 @@ class SekmeYoneticisi(
                 return null
             }
 
+            // https'e çevirdiğimiz adres açılmazsa güvenli olmayan devam seçeneği sun.
+            override fun onReceivedError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                error: WebResourceError?
+            ) {
+                if (view == null || request == null || !request.isForMainFrame) return
+                sekme.hataVar = true
+
+                val orijinal = sekme.yukseltilenHttp
+                if (orijinal != null && !sekme.sslHatasi &&
+                    request.url.host == Uri.parse(orijinal).host
+                ) {
+                    sekme.yukseltilenHttp = null
+                    val html = HataSayfasi.olustur(
+                        "Güvenli bağlantı kurulamadı",
+                        "Bu site HTTPS ile açılamadı. Devam edersen gönderdiğin ve aldığın " +
+                            "bilgiler şifrelenmeden iletilir. Şifre veya kart bilgisi girme.",
+                        "Güvenli olmayan bağlantıyla devam et",
+                        HataSayfasi.devamAdresi(orijinal)
+                    )
+                    val adres = request.url.toString()
+                    view.loadDataWithBaseURL(adres, html, "text/html", "UTF-8", adres)
+                }
+            }
+
+            // Sertifika hatalarında sayfa açılmaz, devam seçeneği de sunulmaz.
+            override fun onReceivedSslError(
+                view: WebView?,
+                handler: SslErrorHandler?,
+                error: SslError?
+            ) {
+                handler?.cancel()
+                if (view == null || error == null) return
+                if (Uri.parse(error.url).host != sekme.sayfaHost) return
+
+                sekme.hataVar = true
+                sekme.sslHatasi = true
+                val sebep = when (error.primaryError) {
+                    SslError.SSL_EXPIRED -> "Sitenin sertifikasının süresi dolmuş."
+                    SslError.SSL_IDMISMATCH -> "Sertifika bu alan adı için verilmemiş."
+                    SslError.SSL_NOTYETVALID -> "Sertifika henüz geçerli değil."
+                    SslError.SSL_UNTRUSTED -> "Sertifikayı veren kurum güvenilir değil."
+                    else -> "Sertifika doğrulanamadı."
+                }
+                val html = HataSayfasi.olustur(
+                    "Bağlantı güvenli değil",
+                    "$sebep Güvenliğin için sayfa açılmadı."
+                )
+                view.loadDataWithBaseURL(error.url, html, "text/html", "UTF-8", error.url)
+            }
+
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 sekme.engelSayaci.set(0)
                 sekme.engellenen = 0
@@ -215,6 +409,12 @@ class SekmeYoneticisi(
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
+                // Hata sayfaları geçmişe yazılmaz.
+                if (sekme.hataVar || view?.title == HataSayfasi.BASLIK) return
+
+                // Sayfa sorunsuz açıldı, http yedeği artık gerekmez.
+                sekme.yukseltilenHttp = null
+
                 if (ayar.reklamEngelle && !ayar.istisnaVarMi(sekme.sayfaHost)) {
                     view?.evaluateJavascript(kozmetikJs, null)
                 }
@@ -240,9 +440,10 @@ class SekmeYoneticisi(
             }
         }
 
-        sekme.adres = adres
-        sekme.sayfaHost = hostAl(adres)
-        webView.loadUrl(adres)
+        val yuklenecek = yuksel(sekme, adres)
+        sekme.adres = yuklenecek
+        sekme.sayfaHost = hostAl(yuklenecek)
+        webView.loadUrl(yuklenecek)
 
         sekmeler.add(sekme)
         aktifId = sekme.id
