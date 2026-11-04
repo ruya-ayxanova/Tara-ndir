@@ -36,9 +36,11 @@ import com.benimtarayici.app.ui.common.AltButon
 fun AyarlarScreen(
     ayar: AyarDeposu,
     vpnOzeti: String,
+    proxyOzeti: String,
     onMasaustuDegistir: (Boolean) -> Unit,
     onGizlilik: () -> Unit,
     onVpn: () -> Unit,
+    onProxy: () -> Unit,
     onGeri: () -> Unit
 ) {
     BackHandler(enabled = true) { onGeri() }
@@ -124,10 +126,26 @@ fun AyarlarScreen(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Text(text = "  ›", fontSize = 22.sp)
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onProxy)
+                    .padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    text = "  ›",
-                    fontSize = 22.sp
+                    text = "🌐 Proxy",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyLarge
                 )
+                Text(
+                    text = proxyOzeti,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(text = "  ›", fontSize = 22.sp)
             }
 
             Spacer(modifier = Modifier.height(12.dp))
