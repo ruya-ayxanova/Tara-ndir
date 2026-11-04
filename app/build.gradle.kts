@@ -13,6 +13,11 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1"
+
+        // APK boyutunu küçük tutmak için sadece yaygın telefon işlemcileri.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     buildFeatures {
@@ -36,4 +41,5 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.activity:activity-compose:1.9.0")
     implementation("androidx.webkit:webkit:1.8.0")
+    implementation("com.wireguard.android:tunnel:1.0.20230706")
 }
