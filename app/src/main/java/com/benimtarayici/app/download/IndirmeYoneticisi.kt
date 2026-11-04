@@ -259,7 +259,12 @@ class IndirmeYoneticisi private constructor(private val context: Context) {
                 val dosya = File(indirme.yol)
                 val mevcut = if (dosya.exists()) dosya.length() else 0L
 
-                baglanti = URL(indirme.adres).openConnection() as HttpURLConnection
+                val proxy = com.benimtarayici.app.network.AgAyarlari.indirmeProxy
+baglanti = (if (proxy != null) {
+    URL(indirme.adres).openConnection(proxy)
+} else {
+    URL(indirme.adres).openConnection()
+}) as HttpURLConnection
                 baglanti.connectTimeout = 15000
                 baglanti.readTimeout = 15000
 
