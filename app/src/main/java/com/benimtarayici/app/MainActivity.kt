@@ -23,6 +23,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
@@ -39,10 +43,12 @@ import com.benimtarayici.app.download.IndirmeDurumu
 import com.benimtarayici.app.download.IndirmeYoneticisi
 import com.benimtarayici.app.engel.EngelYoneticisi
 import com.benimtarayici.app.network.AgDurumu
+import com.benimtarayici.app.network.ProxyYoneticisi
 import com.benimtarayici.app.ui.browser.BrowserScreen
 import com.benimtarayici.app.ui.downloads.IndirmelerScreen
 import com.benimtarayici.app.ui.home.HomeScreen
 import com.benimtarayici.app.ui.lists.KayitListesiScreen
+import com.benimtarayici.app.ui.network.ProxyScreen
 import com.benimtarayici.app.ui.player.VideoScreen
 import com.benimtarayici.app.ui.privacy.GizlilikScreen
 import com.benimtarayici.app.ui.settings.AyarlarScreen
@@ -57,6 +63,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var indirmeler: IndirmeYoneticisi
     private lateinit var engel: EngelYoneticisi
     private lateinit var ag: AgDurumu
+    private lateinit var proxy: ProxyYoneticisi
     private lateinit var yonetici: SekmeYoneticisi
 
     private val bildirimIzni =
@@ -69,7 +76,11 @@ class MainActivity : ComponentActivity() {
         indirmeler = IndirmeYoneticisi.al(this)
         engel = EngelYoneticisi(this, ayar)
         ag = AgDurumu(this)
+        proxy = ProxyYoneticisi.al(this)
         yonetici = SekmeYoneticisi(this, depo, ayar, indirmeler, engel, ag)
+
+        // Kayıtlı proxy seçimi her açılışta yeniden uygulanır.
+        proxy.uygula()
 
         // İnternet veya VPN geri gelince hata sayfasındaki sekme yeniden denenir.
         ag.geriGeldi = { yonetici.baglantiGeldi() }
@@ -91,6 +102,9 @@ class MainActivity : ComponentActivity() {
             }
 
             TarayiciTema(tema = ayar.tema) {
+                // Ayarlar içindeki Proxy alt ekranı açık mı?
+                var proxyAcik by remember { mutableStateOf(false) }
+
                 Column(modifier = Modifier.fillMaxSize()) {
 
                     // Üstteki uyarı bandı: önce internet, sonra VPN kontrolü.
@@ -201,17 +215,29 @@ class MainActivity : ComponentActivity() {
                                 onHepsiniTemizle = { depo.gecmisiTemizle() }
                             )
 
-                            Ekran.AYARLAR -> AyarlarScreen(
-                                ayar = ayar,
-                                vpnOzeti = if (ag.vpnBagli) "Bağlı" else "Bağlı değil",
-                                onMasaustuDegistir = {
-                                    ayar.masaustuDegistir(it)
-                                    yonetici.masaustuModunuUygula()
-                                },
-                                onGizlilik = { yonetici.gizlilikAc() },
-                                onVpn = { yonetici.ekran = Ekran.VPN },
-                                onGeri = { yonetici.ekran = Ekran.ANA }
-                            )
+                            Ekran.AYARLAR -> {
+                                if (proxyAcik) {
+                                    ProxyScreen(
+                                        proxy = proxy,
+                                        onDegisti = { sayfalariYenile() },
+                                        onGeri = { proxyAcik = false }
+                                    )
+                                } else {
+                                    AyarlarScreen(
+                                        ayar = ayar,
+                                        vpnOzeti = if (ag.vpnBagli) "Bağlı" else "Bağlı değil",
+                                        proxyOzeti = proxy.aktifOzet,
+                                        onMasaustuDegistir = {
+                                            ayar.masaustuDegistir(it)
+                                            yonetici.masaustuModunuUygula()
+                                        },
+                                        onGizlilik = { yonetici.gizlilikAc() },
+                                        onVpn = { yonetici.ekran = Ekran.VPN },
+                                        onProxy = { proxyAcik = true },
+                                        onGeri = { yonetici.ekran = Ekran.ANA }
+                                    )
+                                }
+                            }
 
                             Ekran.VPN -> VpnScreen(
                                 ag = ag,
@@ -289,6 +315,13 @@ class MainActivity : ComponentActivity() {
                     .fillMaxWidth()
                     .padding(8.dp)
             )
+        }
+    }
+
+    // Proxy değişince açık sayfalar yeni ayarla yeniden yüklenir.
+    private fun sayfalariYenile() {
+        yonetici.sekmeler.forEach {
+            if (it.adres.isNotBlank()) it.webView.reload()
         }
     }
 
