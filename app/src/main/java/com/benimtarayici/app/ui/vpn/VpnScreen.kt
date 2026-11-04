@@ -1,6 +1,11 @@
 package com.benimtarayici.app.ui.vpn
 
+import android.app.Activity
+import android.net.VpnService
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,10 +37,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.benimtarayici.app.network.AgDurumu
+import com.benimtarayici.app.network.WgDurum
+import com.benimtarayici.app.network.WireGuardYoneticisi
 import com.benimtarayici.app.ui.common.AltButon
 
 @Composable
@@ -47,11 +56,57 @@ fun VpnScreen(
 ) {
     BackHandler(enabled = true) { onGeri() }
 
-    var onayGoster by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val wg = remember { WireGuardYoneticisi.al(context) }
+    val pano = LocalClipboardManager.current
 
-    if (onayGoster) {
+    var zorunluOnay by remember { mutableStateOf(false) }
+    var silOnay by remember { mutableStateOf(false) }
+
+    // Android'in "VPN bağlantısı isteği" penceresi sonucu.
+    val izinSecici = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { sonuc ->
+        if (sonuc.resultCode == Activity.RESULT_OK) {
+            wg.baglan()
+        } else {
+            Toast.makeText(context, "VPN izni verilmedi.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // .conf dosyasını seç ve içe aktar.
+    val dosyaSecici = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val metin = try {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use {
+                    it.readText()
+                }
+            } catch (e: Exception) {
+                null
+            }
+            val mesaj = if (metin == null) {
+                "Dosya okunamadı."
+            } else {
+                wg.iceAktar(metin) ?: "Yapılandırma eklendi."
+            }
+            Toast.makeText(context, mesaj, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun baglanTikla() {
+        val niyet = VpnService.prepare(context)
+        if (niyet != null) {
+            izinSecici.launch(niyet)
+        } else {
+            wg.baglan()
+        }
+    }
+
+    if (zorunluOnay) {
         AlertDialog(
-            onDismissRequest = { onayGoster = false },
+            onDismissRequest = { zorunluOnay = false },
             title = { Text("VPN şu an bağlı değil") },
             text = {
                 Text(
@@ -62,14 +117,34 @@ fun VpnScreen(
             confirmButton = {
                 TextButton(onClick = {
                     ag.vpnZorunluDegistir(true)
-                    onayGoster = false
+                    zorunluOnay = false
                 }) { Text("Aç") }
             },
             dismissButton = {
-                TextButton(onClick = { onayGoster = false }) { Text("Vazgeç") }
+                TextButton(onClick = { zorunluOnay = false }) { Text("Vazgeç") }
             }
         )
     }
+
+    if (silOnay) {
+        AlertDialog(
+            onDismissRequest = { silOnay = false },
+            title = { Text("Yapılandırma silinsin mi?") },
+            text = { Text("Kayıtlı WireGuard yapılandırması ve anahtarları bu telefondan silinir.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    wg.sil()
+                    silOnay = false
+                }) { Text("Sil") }
+            },
+            dismissButton = {
+                TextButton(onClick = { silOnay = false }) { Text("Vazgeç") }
+            }
+        )
+    }
+
+    val wgAcik = wg.durum == WgDurum.ACIK
+    val wgBaglaniyor = wg.durum == WgDurum.BAGLANIYOR
 
     Scaffold(
         bottomBar = {
@@ -138,11 +213,103 @@ fun VpnScreen(
             Text(
                 text = "Bu tarayıcı kendi VPN sunucusunu işletmez. VPN için bir sunucuya " +
                     "ihtiyacın var: kendi sunucun, modeminin VPN'i veya güvendiğin bir sağlayıcı. " +
-                    "Telefonun VPN'ine bağlandığında bu ekrandaki durum otomatik güncellenir.",
+                    "Aşağıdan WireGuard yapılandırmanı ekleyip tarayıcının içinde bağlanabilir " +
+                    "ya da telefonun VPN'ini kullanabilirsin. Durum otomatik güncellenir.",
                 style = MaterialTheme.typography.bodyMedium
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            // ---- Uygulama içi WireGuard ----
+            Spacer(modifier = Modifier.height(24.dp))
+            Baslik("Uygulama içi VPN (WireGuard)")
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = when (wg.durum) {
+                    WgDurum.KAPALI -> "Tünel: kapalı"
+                    WgDurum.BAGLANIYOR -> "Tünel: bağlanıyor…"
+                    WgDurum.ACIK -> "Tünel: açık"
+                    WgDurum.HATA -> "Tünel hatası: ${wg.hata}"
+                },
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (wg.durum == WgDurum.HATA) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (!wg.yapilandirmaVar) {
+                Text(
+                    text = "Henüz yapılandırma yok. Sunucundan veya sağlayıcından aldığın " +
+                        "WireGuard .conf dosyasını ekle.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { dosyaSecici.launch(arrayOf("*/*")) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("📄 Dosyadan içe aktar")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        val metin = pano.getText()?.text
+                        if (metin.isNullOrBlank()) {
+                            Toast.makeText(context, "Pano boş.", Toast.LENGTH_SHORT).show()
+                        } else {
+                            val mesaj = wg.iceAktar(metin) ?: "Yapılandırma eklendi."
+                            Toast.makeText(context, mesaj, Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("📋 Panodan yapıştır")
+                }
+            } else {
+                Text(
+                    text = "Sunucu: ${wg.sunucuOzeti}",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = { if (wgAcik) wg.kes() else baglanTikla() },
+                    enabled = !wgBaglaniyor,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        when {
+                            wgAcik -> "Bağlantıyı kes"
+                            wgBaglaniyor -> "Bağlanıyor…"
+                            else -> "Bağlan"
+                        }
+                    )
+                }
+                TextButton(
+                    onClick = { silOnay = true },
+                    enabled = !wgBaglaniyor
+                ) {
+                    Text("Yapılandırmayı sil")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Bu tünel yalnızca bu tarayıcının trafiğini (indirmeler dahil) kapsar, " +
+                    "telefondaki diğer uygulamalar etkilenmez. Yapılandırma ve anahtarlar " +
+                    "bu telefonda şifrelenerek saklanır. \"Açık\" yazması tünelin kurulduğunu " +
+                    "gösterir, sunucuya ulaşıldığını garanti etmez: bağlandıktan sonra " +
+                    "api.ipify.org adresini açıp IP'nin değiştiğini kontrol et.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // ---- Telefonun VPN'i ----
+            Spacer(modifier = Modifier.height(24.dp))
+            Baslik("Telefonun VPN'i")
+            Spacer(modifier = Modifier.height(8.dp))
             Button(
                 onClick = onVpnAyarlari,
                 modifier = Modifier.fillMaxWidth()
@@ -157,13 +324,9 @@ fun VpnScreen(
                 Text("WireGuard uygulamasını aç")
             }
 
+            // ---- Güvenlik ----
             Spacer(modifier = Modifier.height(24.dp))
-            Text(
-                text = "Güvenlik",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold
-            )
+            Baslik("Güvenlik")
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -185,7 +348,7 @@ fun VpnScreen(
                     checked = ag.vpnZorunlu,
                     onCheckedChange = { yeni ->
                         if (yeni && !ag.vpnBagli) {
-                            onayGoster = true
+                            zorunluOnay = true
                         } else {
                             ag.vpnZorunluDegistir(yeni)
                         }
@@ -205,4 +368,14 @@ fun VpnScreen(
             )
         }
     }
+}
+
+@Composable
+private fun Baslik(metin: String) {
+    Text(
+        text = metin,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        fontWeight = FontWeight.Bold
+    )
 }
