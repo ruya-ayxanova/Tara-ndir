@@ -11,12 +11,37 @@ android {
         applicationId = "com.benimtarayici.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1"
+
+        // Her GitHub derlemesinde sürüm kodu kendiliğinden artar.
+        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionName = "1.0.0"
 
         // APK boyutunu küçük tutmak için sadece yaygın telefon işlemcileri.
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+    }
+
+    // İmza bilgileri koda yazılmaz, GitHub gizli değerlerinden gelir.
+    signingConfigs {
+        create("release") {
+            val anahtarYolu = System.getenv("KEYSTORE_PATH")
+            if (anahtarYolu != null) {
+                storeFile = file(anahtarYolu)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // Küçültme kapalı: daha büyük ama hata riski düşük.
+            isMinifyEnabled = false
+            if (System.getenv("KEYSTORE_PATH") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
