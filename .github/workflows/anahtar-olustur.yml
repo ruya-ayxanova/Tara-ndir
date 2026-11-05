@@ -1,0 +1,35 @@
+name: Anahtar Olustur
+
+on:
+  workflow_dispatch:
+
+jobs:
+  anahtar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Anahtar uret
+        run: |
+          SIFRE=$(openssl rand -hex 16)
+          keytool -genkeypair \
+            -keystore anahtar.jks \
+            -alias tarayici \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "$SIFRE" -keypass "$SIFRE" \
+            -dname "CN=Yeni Tarayici, O=Bireysel, C=TR"
+          base64 -w 0 anahtar.jks > KEYSTORE_BASE64.txt
+          echo -n "$SIFRE" > SIFRE.txt
+          echo -n "tarayici" > ALIAS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: anahtar-bilgileri
+          path: |
+            KEYSTORE_BASE64.txt
+            SIFRE.txt
+            ALIAS.txt
+          retention-days: 1
