@@ -164,6 +164,7 @@ class MainActivity : ComponentActivity() {
                                         yerImiVar = depo.yerImiVarMi(sekme.adres),
                                         istisnaVar = ayar.istisnaVarMi(host),
                                         onAdresGit = { yonetici.adresAc(sekme, it) },
+                                        onVideoIndir = { yonetici.videoIndir(sekme, it) },
                                         onYerImi = {
                                             depo.yerImiDegistir(
                                                 sekme.baslik.removePrefix("🕶 "),
