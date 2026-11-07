@@ -5,6 +5,8 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.net.http.SslError
+import android.os.Handler
+import android.os.Looper
 import android.webkit.CookieManager
 import android.webkit.SslErrorHandler
 import android.webkit.URLUtil
@@ -28,12 +30,16 @@ import com.benimtarayici.app.download.Indirme
 import com.benimtarayici.app.download.IndirmeYoneticisi
 import com.benimtarayici.app.engel.EngelYoneticisi
 import com.benimtarayici.app.network.AgDurumu
+import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.util.concurrent.atomic.AtomicInteger
 
 enum class Ekran {
     ANA, TARAYICI, SEKMELER, YER_IMLERI, GECMIS, AYARLAR, INDIRMELER, VIDEO, GIZLILIK, VPN
 }
+
+// Sayfada bulunan, doğrudan dosya olarak sunulan bir video.
+data class VideoAdayi(val url: String, val ad: String)
 
 class Sekme(val id: Int, val webView: WebView, val gizli: Boolean) {
     var baslik by mutableStateOf(if (gizli) "🕶 Yeni sekme" else "Yeni sekme")
@@ -61,6 +67,27 @@ class Sekme(val id: Int, val webView: WebView, val gizli: Boolean) {
 
     @Volatile
     var sonHataAdresi: String? = null
+
+    // Sekme kapatıldı mı? (kapatılmış WebView'e dokunmamak için)
+    @Volatile
+    var kapali: Boolean = false
+
+    // ---- Video algılama ----
+    val videolar = mutableStateListOf<VideoAdayi>()
+
+    // Sayfada parçalı akış (blob / m3u8 / mpd) olarak sunulan, indirilemeyen video var mı?
+    var akisVideoVar by mutableStateOf(false)
+
+    // Sadece ana iş parçacığından çağrılmalı.
+    fun videoEkle(url: String) {
+        val temiz = url.substringBefore('#')
+        if (!temiz.startsWith("http")) return
+        if (videolar.any { it.url == temiz }) return
+        if (videolar.size >= 20) return
+        val uri = Uri.parse(temiz)
+        val ad = uri.lastPathSegment?.takeIf { it.isNotBlank() } ?: (uri.host ?: "video")
+        videolar.add(VideoAdayi(temiz, ad))
+    }
 }
 
 // Onay bekleyen riskli indirme.
@@ -82,6 +109,8 @@ class SekmeYoneticisi(
     private val ag: AgDurumu
 ) {
 
+    private val ana = Handler(Looper.getMainLooper())
+
     private val masaustuUA =
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
             "Chrome/124.0.0.0 Safari/537.36"
@@ -96,6 +125,31 @@ class SekmeYoneticisi(
             if (document.head) document.head.appendChild(s);
         })();
     """.trimIndent()
+
+    // Sayfadaki <video> öğelerinin kaynaklarını toplar.
+    private val videoTaramaJs = """
+        (function() {
+            var sonuc = { u: [], akis: false };
+            function ekle(s) {
+                if (!s) return;
+                if (s.indexOf('blob:') === 0 || /\.(m3u8|mpd)(\?|#|${'$'})/i.test(s)) {
+                    sonuc.akis = true;
+                    return;
+                }
+                try { s = new URL(s, document.baseURI).href; } catch (e) { return; }
+                if (sonuc.u.indexOf(s) < 0) sonuc.u.push(s);
+            }
+            var v = document.querySelectorAll('video');
+            for (var i = 0; i < v.length; i++) {
+                ekle(v[i].currentSrc || v[i].src);
+                var k = v[i].querySelectorAll('source');
+                for (var j = 0; j < k.length; j++) ekle(k[j].src);
+            }
+            return sonuc;
+        })();
+    """.trimIndent()
+
+    private val videoUzantilari = setOf("mp4", "webm", "m4v", "mov", "mkv", "3gp")
 
     private val riskliUzantilar = setOf(
         "apk", "xapk", "apks", "exe", "msi", "bat", "cmd", "scr",
@@ -269,6 +323,35 @@ class SekmeYoneticisi(
         sekme.webView.loadUrl(yuksel(sekme, adres))
     }
 
+    // ---- Video algılama ----
+
+    private fun videoTara(sekme: Sekme) {
+        if (sekme.kapali) return
+        sekme.webView.evaluateJavascript(videoTaramaJs) { ham ->
+            videoSonucuIsle(sekme, ham)
+        }
+    }
+
+    private fun videoSonucuIsle(sekme: Sekme, ham: String?) {
+        if (ham == null || ham == "null") return
+        try {
+            val sonuc = JSONObject(ham)
+            val dizi = sonuc.getJSONArray("u")
+            for (i in 0 until dizi.length()) {
+                sekme.videoEkle(dizi.getString(i))
+            }
+            if (sonuc.optBoolean("akis")) sekme.akisVideoVar = true
+        } catch (e: Exception) {
+            // Beklenmeyen biçim gelirse sessizce yok say.
+        }
+    }
+
+    // Kullanıcının seçtiği videoyu normal indirme güvenlik kontrolüne gönderir.
+    fun videoIndir(sekme: Sekme, video: VideoAdayi) {
+        val ua = sekme.webView.settings.userAgentString
+        indirmeIstegi(video.url, ua, null, null)
+    }
+
     // ---- İndirme güvenliği ----
 
     private fun riskNedenleri(url: String, dosyaAdi: String): List<String> {
@@ -430,7 +513,7 @@ class SekmeYoneticisi(
                 return false
             }
 
-            // Her istek önce buraya sorulur: VPN kontrolü ve reklam/izleyici engelleme.
+            // Her istek önce buraya sorulur: VPN kontrolü, reklam/izleyici engelleme, video algılama.
             override fun shouldInterceptRequest(
                 view: WebView?,
                 request: WebResourceRequest?
@@ -459,10 +542,18 @@ class SekmeYoneticisi(
                 }
 
                 if (request.isForMainFrame) return null
+
                 if (engel.engellenmeliMi(request.url?.host, sekme.sayfaHost)) {
                     sekme.engellenen = sekme.engelSayaci.incrementAndGet()
                     engel.sayacArttir()
                     return bosCevap()
+                }
+
+                // Engellenmeyen, doğrudan video dosyası isteklerini aday olarak not et.
+                val yol = request.url.path?.lowercase() ?: ""
+                if (yol.substringAfterLast('.', "") in videoUzantilari) {
+                    val adres = request.url.toString()
+                    ana.post { sekme.videoEkle(adres) }
                 }
                 return null
             }
@@ -537,6 +628,9 @@ class SekmeYoneticisi(
                 sekme.engelSayaci.set(0)
                 sekme.engellenen = 0
                 sekme.sayfaHost = hostAl(url)
+                // Yeni sayfa: eski sayfanın videoları geçersiz.
+                sekme.videolar.clear()
+                sekme.akisVideoVar = false
             }
 
             override fun doUpdateVisitedHistory(
@@ -562,6 +656,12 @@ class SekmeYoneticisi(
                 if (ayar.reklamEngelle && !ayar.istisnaVarMi(sekme.sayfaHost)) {
                     view?.evaluateJavascript(kozmetikJs, null)
                 }
+
+                // Videoları tara; oynatıcılar geç yüklenebildiği için birkaç kez dene.
+                videoTara(sekme)
+                ana.postDelayed({ videoTara(sekme) }, 1500)
+                ana.postDelayed({ videoTara(sekme) }, 4000)
+
                 if (!gizli && url != null && url.startsWith("http")) {
                     val baslik = view?.title
                     depo.gecmiseEkle(
@@ -603,6 +703,7 @@ class SekmeYoneticisi(
         val sira = sekmeler.indexOf(sekme)
         if (sira < 0) return
         sekmeler.removeAt(sira)
+        sekme.kapali = true
         sekme.webView.destroy()
         if (aktifId == sekme.id) {
             aktifId = sekmeler.getOrNull(minOf(sira, sekmeler.size - 1))?.id
@@ -619,7 +720,10 @@ class SekmeYoneticisi(
     }
 
     fun hepsiniYokEt() {
-        sekmeler.forEach { it.webView.destroy() }
+        sekmeler.forEach {
+            it.kapali = true
+            it.webView.destroy()
+        }
         sekmeler.clear()
     }
 }
