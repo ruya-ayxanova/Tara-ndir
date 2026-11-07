@@ -9,17 +9,22 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,10 +37,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.benimtarayici.app.browser.Sekme
+import com.benimtarayici.app.browser.VideoAdayi
 import com.benimtarayici.app.ui.common.AltButon
 import com.benimtarayici.app.ui.common.SekmeSayaci
 import com.benimtarayici.app.util.UrlYardimci
@@ -47,6 +54,7 @@ fun BrowserScreen(
     yerImiVar: Boolean,
     istisnaVar: Boolean,
     onAdresGit: (String) -> Unit,
+    onVideoIndir: (VideoAdayi) -> Unit,
     onYerImi: () -> Unit,
     onIstisna: () -> Unit,
     onGizlilik: () -> Unit,
@@ -55,6 +63,7 @@ fun BrowserScreen(
 ) {
     val odak = LocalFocusManager.current
     var adresMetni by remember(sekme.id) { mutableStateOf(sekme.adres) }
+    var videoDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(sekme.id, sekme.adres) {
         adresMetni = sekme.adres
@@ -71,6 +80,58 @@ fun BrowserScreen(
     // Telefonun geri tuşu: önce sayfada geri git, gidemiyorsa ana sayfaya dön.
     BackHandler(enabled = true) {
         if (sekme.webView.canGoBack()) sekme.webView.goBack() else onAnaSayfa()
+    }
+
+    // Sayfadaki videoların listesi.
+    if (videoDialog) {
+        AlertDialog(
+            onDismissRequest = { videoDialog = false },
+            title = { Text("Bu sayfadaki videolar") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        text = "Yalnızca indirme hakkın olan içerikleri indir (kendi videon, " +
+                            "açık lisanslı veya sitenin indirmeye izin verdiği içerik). " +
+                            "Bir videoya dokunarak bunu onaylamış olursun.",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    sekme.videolar.toList().forEach { video ->
+                        TextButton(onClick = {
+                            onVideoIndir(video)
+                            videoDialog = false
+                        }) {
+                            Text(
+                                text = "⬇ ${video.ad}",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    if (sekme.videolar.isEmpty()) {
+                        Text(
+                            text = "İndirilebilir doğrudan video dosyası bulunamadı.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+
+                    if (sekme.akisVideoVar) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Bu sayfada parçalı akış (blob, m3u8, mpd) olarak sunulan " +
+                                "videolar da var. Bunlar indirilemez.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { videoDialog = false }) { Text("Kapat") }
+            }
+        )
     }
 
     Scaffold(
@@ -172,6 +233,24 @@ fun BrowserScreen(
                     modifier = Modifier
                         .clickable(onClick = onIstisna)
                         .padding(vertical = 4.dp, horizontal = 4.dp)
+                )
+            }
+
+            // Sayfada video bulunduysa göster.
+            if (sekme.videolar.isNotEmpty() || sekme.akisVideoVar) {
+                Text(
+                    text = if (sekme.videolar.isNotEmpty()) {
+                        "⬇ Video (${sekme.videolar.size})"
+                    } else {
+                        "⚠ Akış videosu var (indirilemez)"
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { videoDialog = true }
+                        .padding(horizontal = 4.dp, vertical = 6.dp)
                 )
             }
 
